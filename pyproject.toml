@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "plink_to_np_pipeline"
+name = "plink_pipelines"
 version = "0.1.0"
 description = ""
 authors = ["Arnor Sigurdsson <arnor-sigurdsson@users.noreply.github.com>"]

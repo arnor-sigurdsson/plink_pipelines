@@ -5,7 +5,7 @@ options = [('W ignore', None, 'OPTION')]
 
 block_cipher = None
 
-a = Analysis(['../plink_to_np_pipeline/make_dataset.py'],
+a = Analysis(['../plink_pipelines/make_dataset.py'],
              binaries=[],
              datas=[],
              hiddenimports=[],
