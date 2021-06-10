@@ -1,0 +1,25 @@
+default_language_version:
+  python: python3.8
+repos:
+  - repo: https://github.com/ambv/black
+    rev: 21.5b2
+    hooks:
+      - id: black
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v1.2.3
+    hooks:
+      - id: flake8
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: test
+        name: Run tests
+        entry: tox
+        language: system
+        types: [python]
+        stages: [push]
+      - id: update-reqs
+        name: Update requirements.txt
+        entry: ./misc/update_reqs.sh
+        language: system
+        stages: [push]
