@@ -314,7 +314,7 @@ class RunAll(luigi.WrapperTask):
         yield CleanupIntermediateTaskOutputs(**self.config)
 
 
-if __name__ == "__main__":
+def get_cl_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--raw_data_path",
@@ -369,7 +369,16 @@ if __name__ == "__main__":
         "specified .bim file.",
     )
 
-    config = parser.parse_args()
-    validate_cl_args(config)
+    cl_args = parser.parse_args()
+    validate_cl_args(cl_args)
 
-    luigi.build([RunAll(vars(config))], local_scheduler=True)
+    return cl_args
+
+
+def main():
+    cl_args = get_cl_args()
+    luigi.build([RunAll(vars(cl_args))], local_scheduler=True)
+
+
+if __name__ == "__main__":
+    main()
