@@ -2,6 +2,8 @@
 
 ## Installation
 
+Install [Plink](https://www.cog-genomics.org/plink/).
+
 ```
 pip install plink-pipelines
 ```
