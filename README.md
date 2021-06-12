@@ -13,3 +13,5 @@ Download [sample data](https://drive.google.com/file/d/1LPEPvCerwFNWzcwWL-vXJaQd
 ```bash
 plink_pipelines --raw_data_path plink_pipelines_sample_data --output_folder plink_pipelines_sample_data
 ```
+
+To see the full set of options, do `plink_pipelines --help`.
