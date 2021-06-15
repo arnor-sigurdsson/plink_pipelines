@@ -2,7 +2,7 @@
 
 ## Installation
 
-Install [Plink](https://www.cog-genomics.org/plink/).
+Install [Plink](https://www.cog-genomics.org/plink/) and make sure it is accessible from your `PATH`.
 
 ```
 pip install plink-pipelines
