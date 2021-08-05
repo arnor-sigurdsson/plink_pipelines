@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "plink_pipelines"
-version = "0.1.1-alpha"
+version = "0.1.2-alpha"
 description = ""
 authors = ["Arnor Sigurdsson <arnor-sigurdsson@users.noreply.github.com>"]
 
