@@ -25,7 +25,6 @@ pytest-cov = "^2.12.1"
 pynvim = "^0.4.3"
 visidata = "^2.4"
 pyinstaller = "^4.3"
-pycrypto = "^2.6.1"
 pre-commit = "^2.13.0"
 black = "^21.5b2"
 
