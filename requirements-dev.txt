@@ -91,7 +91,6 @@ ptyprocess==0.7.0; os_name != "nt" and python_version >= "3.7" and sys_platform 
 py==1.10.0; (python_version >= "2.7" and python_full_version < "3.0.0") or (python_full_version >= "3.4.0")
 pycodestyle==2.7.0; python_version >= "2.7" and python_full_version < "3.0.0" or python_full_version >= "3.5.0"
 pycparser==2.20; python_version >= "3.8" and python_full_version < "3.0.0" and python_version < "4.0" or python_version >= "3.8" and python_version < "4.0" and python_full_version >= "3.4.0"
-pycrypto==2.6.1
 pyflakes==2.3.1; python_version >= "2.7" and python_full_version < "3.0.0" or python_full_version >= "3.5.0"
 pygments==2.9.0; python_version >= "3.7"
 pyinstaller-hooks-contrib==2021.2; python_version >= "3.6"
