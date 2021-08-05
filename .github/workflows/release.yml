@@ -30,8 +30,8 @@ jobs:
             TARGET: ubuntu
             CMD_BUILD: |
               poetry run pyinstaller --onefile config/make_dataset.spec
-              zip -j ./dist/plink_pipelines-${{ needs.getrelease.outputs.versionoutput }}_ubuntu-20.zip ./dist/plink_pipelines
-            OUT_FILE_NAME: plink_pipelines-${{ needs.getrelease.outputs.versionoutput }}_ubuntu-20.zip
+              zip -j ./dist/plink-pipelines-${{ needs.getrelease.outputs.versionoutput }}_ubuntu-20.zip ./dist/plink-pipelines
+            OUT_FILE_NAME: plink-pipelines-${{ needs.getrelease.outputs.versionoutput }}_ubuntu-20.zip
             ASSET_MIME: application/zip
 
           - os: macos-10.15
