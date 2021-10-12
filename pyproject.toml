@@ -10,7 +10,8 @@ pandas = "^1.2.4"
 scikit-learn = "^0.24.2"
 py = "^1.10.0"
 luigi = "^3.0.3"
-aislib = "0.1.5a0"
+aislib = "^0.1.6-alpha.0"
+pyinstaller = "^4.5.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.4"
