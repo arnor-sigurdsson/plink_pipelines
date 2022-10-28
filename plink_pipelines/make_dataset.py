@@ -3,11 +3,13 @@ import subprocess
 import warnings
 from pathlib import Path
 from shutil import copyfile, rmtree
+from typing import Generator, Tuple, Literal, Optional
 
 import luigi
-import pandas as pd
-from aislib import plink_utils
+import numpy as np
+import deeplake
 from aislib.misc_utils import ensure_path_exists
+from bed_reader import open_bed
 from luigi.task import flatten
 from luigi.util import requires, inherits
 
@@ -161,10 +163,17 @@ class PlinkQC(Config):
 
 
 @inherits(ExternalRawData, PlinkExtractAlleles, PlinkQC)
-class PlinkRecode(Config):
-    file_name = "interim/0_filtering_files/2_data_recoded/data_plink_processed.raw"
-    extract_snp_file = luigi.Parameter()
+class OneHotSNPs(Config):
+    """
+    Generates one hot encodings from a individuals x SNPs file.
+    """
+
+    output_folder = luigi.Parameter()
+    output_format = luigi.Parameter()
+    output_name = luigi.Parameter()
     qc = luigi.BoolParameter()
+    extract_snp_file = luigi.Parameter()
+    file_name = "processed/encoded_outputs"
 
     def requires(self):
         """
@@ -187,54 +196,147 @@ class PlinkRecode(Config):
         return base
 
     def run(self):
-        input_path = Path(self.input()[0].path)
-        output_path = Path(self.output().path)
-        ensure_path_exists(output_path)
+        input_path = Path(self.input()[-1].path)
+        assert input_path.suffix == ".bed"
 
-        plink_input = input_path.parent / input_path.stem
-        plink_output = output_path.parent / output_path.stem
-
-        cmd = [
-            "plink",
-            "--bfile",
-            plink_input,
-            "--recodeA",
-            "--make-bed",
-            "--out",
-            plink_output,
-        ]
-
-        if self.extract_snp_file:
-            snp_series = pd.read_csv(self.extract_snp_file, sep=r"\s+", usecols=[1, 4])
-            snp_series_path = output_path.parent / "snps_to_extract.txt"
-            snp_series.to_csv(snp_series_path, index=False, header=False, sep="\t")
-            cmd += ["--recode-allele", str(snp_series_path)]
-
-        subprocess.call(cmd)
-
-
-@requires(PlinkRecode)
-class OneHotSNPs(Config):
-    """
-    Generates one hot encodings from a individuals x SNPs file.
-    """
-
-    output_folder = luigi.Parameter()
-    file_name = "processed/encoded_outputs"
-
-    def run(self):
-        input_path = self.input().path
         output_path = Path(self.output().path)
         ensure_path_exists(output_path, is_folder=True)
 
-        encoder = plink_utils.get_plink_raw_encoder()
-        plink_utils.plink_raw_to_one_hot(input_path, output_path, encoder)
+        bed_generator = get_sample_generator_from_bed(bed_path=input_path)
+        chunk_generator = _get_chunked_sample_generator(
+            sample_generator=bed_generator, chunk_size=1000
+        )
+        sample_id_one_hot_array_generator = _get_one_hot_encoded_generator(
+            chunked_sample_generator=chunk_generator
+        )
+
+        write_one_hot_outputs(
+            id_array_generator=sample_id_one_hot_array_generator,
+            output_folder=output_path,
+            output_format=str(self.output_format),
+            output_name=str(self.output_name),
+        )
 
 
-@inherits(OneHotSNPs, PlinkRecode)
+def write_one_hot_outputs(
+    id_array_generator: Generator[Tuple[str, np.ndarray], None, None],
+    output_folder: Path,
+    output_format: Literal["disk", "deeplake"],
+    output_name: Optional[str] = None,
+) -> None:
+
+    if output_format == "disk":
+        _write_one_hot_arrays_to_disk(
+            id_array_generator=id_array_generator, output_folder=output_folder
+        )
+    elif output_format == "deeplake":
+        assert output_name is not None
+        _write_one_hot_arrays_to_deeplake_ds(
+            id_array_generator=id_array_generator,
+            output_folder=output_folder,
+            output_name=output_name,
+        )
+    else:
+        raise ValueError(f"Unknown output format {output_format}")
+
+
+def _write_one_hot_arrays_to_disk(
+    id_array_generator: Generator[Tuple[str, np.ndarray], None, None],
+    output_folder: Path,
+):
+    for id_, array in id_array_generator:
+        output_path = output_folder / f"{id_}.npy"
+        np.save(str(output_path), array)
+
+
+def _write_one_hot_arrays_to_deeplake_ds(
+    id_array_generator: Generator[Tuple[str, np.ndarray], None, None],
+    output_folder: Path,
+    output_name: str,
+):
+    ds_path = output_folder / output_name
+    if deeplake.exists(ds_path):
+        ds = deeplake.load(ds_path)
+        assert "ID" in ds.tensors
+    else:
+        ds = deeplake.empty(ds_path)
+        ds.create_tensor("ID", htype="text")
+
+    ds.create_tensor(output_name)
+    with ds:
+        for id_, array in id_array_generator:
+            sample = {"ID": id_, output_name: array}
+            ds.append(sample)
+
+
+def _get_one_hot_encoded_generator(
+    chunked_sample_generator: Generator[Tuple[Tuple[str, ...], np.ndarray], None, None]
+) -> Generator[Tuple[str, np.ndarray], None, None]:
+
+    for id_chunk, array_chunk in chunked_sample_generator:
+        one_hot_encoded = np.eye(4)[array_chunk]
+
+        # convert (n_samples, n_snps, 4) -> (n_samples, 4, n_snps)
+        one_hot_encoded = one_hot_encoded.transpose(0, 2, 1).astype(np.uint8)
+        assert (one_hot_encoded[0].sum(0) == 1).all()
+        for id_, array in zip(id_chunk, one_hot_encoded):
+            yield id_, array
+
+
+def _get_chunked_sample_generator(
+    sample_generator: Generator[Tuple[str, np.ndarray], None, None],
+    chunk_size: int = 1000,
+) -> Generator[Tuple[Tuple[str, ...], np.ndarray], None, None]:
+
+    ids_chunk = []
+    arrays_chunk = []
+
+    for id_, array in sample_generator:
+        ids_chunk.append(id_)
+        arrays_chunk.append(array)
+
+        if len(ids_chunk) == chunk_size:
+            yield tuple(ids_chunk), np.stack(arrays_chunk).squeeze()
+            ids_chunk = []
+            arrays_chunk = []
+
+    if ids_chunk:
+        yield tuple(ids_chunk), np.stack(arrays_chunk).squeeze()
+
+
+def get_sample_generator_from_bed(
+    bed_path: Path,
+) -> Generator[Tuple[str, np.ndarray], None, None]:
+    with open_bed(bed_path) as bed_handle:
+        n_samples = bed_handle.iid_count
+
+        for index in range(n_samples):
+            id_ = bed_handle.iid[index]
+            array = bed_handle.read(np.s_[index, :]).astype(np.int8)
+            yield id_, array
+
+
+@inherits(OneHotSNPs)
 class FinalizeParsing(luigi.Task):
+    output_folder = luigi.Parameter()
+    output_format = luigi.Parameter()
+    output_name = luigi.Parameter()
+    qc = luigi.BoolParameter()
+    extract_snp_file = luigi.Parameter()
+
     def requires(self):
-        return self.clone(OneHotSNPs), self.clone(PlinkRecode)
+        base = [self.clone(OneHotSNPs)]
+
+        last_plink_task = [self.clone(ExternalRawData)]
+        if self.extract_snp_file:
+            last_plink_task = [self.clone(PlinkExtractAlleles)]
+        if self.qc:
+            last_plink_task = [self.clone(PlinkQC)]
+
+        base += last_plink_task
+        assert len(base) == 2
+
+        return base
 
     def run(self):
         plink_base_path = Path(self.input()[1].path).with_suffix("")
@@ -252,7 +354,7 @@ class FinalizeParsing(luigi.Task):
             str(self.output_folder),
             f"processed/parsed_files/{indiv_sample_size}_indiv/{chr_sample}_snps",
         )
-        one_hot_outputs = self.input()[0]
+        one_hot_outputs = self.input()
         return [luigi.LocalTarget(str(output_path)), one_hot_outputs]
 
 
@@ -261,6 +363,7 @@ class CleanupIntermediateTaskOutputs(luigi.Task):
 
     raw_data_path = luigi.Parameter()
     output_folder = luigi.Parameter()
+    output_format = luigi.Parameter()
     qc = luigi.BoolParameter()
     indiv_sample_size = luigi.IntParameter()
     chr_sample = luigi.Parameter()
@@ -279,14 +382,6 @@ class CleanupIntermediateTaskOutputs(luigi.Task):
             rmtree(self.interim_folder)
 
     def complete(self):
-        """
-        If the task has any outputs, return ``True`` if all outputs exist.
-        Otherwise, return ``False``.
-
-        However, you may freely override this method with custom logic.
-        """
-
-        # changed to input here, to make sure finalize is done
         inputs = flatten(self.input())
         if len(inputs) == 0:
             warnings.warn(
@@ -328,6 +423,21 @@ def get_cl_args():
         type=str,
         default="data",
         help="Folder to save the processed data in.",
+    )
+
+    parser.add_argument(
+        "--output_format",
+        type=str,
+        default="disk",
+        choices=["disk", "deeplake"],
+        help="What format to save the data in.",
+    )
+
+    parser.add_argument(
+        "--output_name",
+        type=str,
+        default="genotype",
+        help="Name used for deeplake dataset.",
     )
 
     parser.add_argument(
