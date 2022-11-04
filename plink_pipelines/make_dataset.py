@@ -3,17 +3,19 @@ import subprocess
 import warnings
 from pathlib import Path
 from shutil import copyfile, rmtree
-from typing import Generator, Tuple, Literal, Optional
+from typing import Generator, Tuple, Literal, Optional, Sequence
 
+import deeplake
 import luigi
 import numpy as np
-import deeplake
-from aislib.misc_utils import ensure_path_exists
+from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
 from luigi.util import requires, inherits
 
 from plink_pipelines.validation_functions import validate_cl_args
+
+logger = get_logger(name=__name__)
 
 
 class RenameOnFailureMixin(object):
@@ -202,9 +204,8 @@ class OneHotSNPs(Config):
         output_path = Path(self.output().path)
         ensure_path_exists(output_path, is_folder=True)
 
-        bed_generator = get_sample_generator_from_bed(bed_path=input_path)
-        chunk_generator = _get_chunked_sample_generator(
-            sample_generator=bed_generator, chunk_size=1000
+        chunk_generator = get_sample_generator_from_bed(
+            bed_path=input_path, chunk_size=1000
         )
         sample_id_one_hot_array_generator = _get_one_hot_encoded_generator(
             chunked_sample_generator=chunk_generator
@@ -262,7 +263,7 @@ def _write_one_hot_arrays_to_deeplake_ds(
         ds = deeplake.empty(ds_path)
         ds.create_tensor("ID", htype="text")
 
-    ds.create_tensor(output_name)
+    ds.create_tensor(output_name, dtype="int8")
     with ds:
         for id_, array in id_array_generator:
             sample = {"ID": id_, output_name: array}
@@ -270,7 +271,9 @@ def _write_one_hot_arrays_to_deeplake_ds(
 
 
 def _get_one_hot_encoded_generator(
-    chunked_sample_generator: Generator[Tuple[Tuple[str, ...], np.ndarray], None, None]
+    chunked_sample_generator: Generator[
+        Tuple[Sequence[str, ...], np.ndarray], None, None
+    ]
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
 
     for id_chunk, array_chunk in chunked_sample_generator:
@@ -283,37 +286,19 @@ def _get_one_hot_encoded_generator(
             yield id_, array
 
 
-def _get_chunked_sample_generator(
-    sample_generator: Generator[Tuple[str, np.ndarray], None, None],
-    chunk_size: int = 1000,
-) -> Generator[Tuple[Tuple[str, ...], np.ndarray], None, None]:
-
-    ids_chunk = []
-    arrays_chunk = []
-
-    for id_, array in sample_generator:
-        ids_chunk.append(id_)
-        arrays_chunk.append(array)
-
-        if len(ids_chunk) == chunk_size:
-            yield tuple(ids_chunk), np.stack(arrays_chunk).squeeze()
-            ids_chunk = []
-            arrays_chunk = []
-
-    if ids_chunk:
-        yield tuple(ids_chunk), np.stack(arrays_chunk).squeeze()
-
-
 def get_sample_generator_from_bed(
     bed_path: Path,
-) -> Generator[Tuple[str, np.ndarray], None, None]:
+    chunk_size: int = 1000,
+) -> Generator[Tuple[np.ndarray, np.ndarray], None, None]:
     with open_bed(bed_path) as bed_handle:
         n_samples = bed_handle.iid_count
 
-        for index in range(n_samples):
-            id_ = bed_handle.iid[index]
-            array = bed_handle.read(np.s_[index, :]).astype(np.int8)
-            yield id_, array
+        for index in range(0, n_samples, chunk_size):
+            ids = bed_handle.iid[index : index + chunk_size]
+            arrays = bed_handle.read(np.s_[index : index + chunk_size, :])
+            arrays = arrays.astype(np.int8)
+            yield ids, arrays
+            logger.info("Processed %s samples.", index + chunk_size)
 
 
 @inherits(OneHotSNPs)
