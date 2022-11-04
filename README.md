@@ -8,9 +8,6 @@ Install [Plink](https://www.cog-genomics.org/plink/) and make sure it is accessi
 pip install plink-pipelines
 ```
 
-There are also [binaries](https://github.com/arnor-sigurdsson/plink_pipelines/releases) available for download.
-
-
 ## Quickstart
 
 Download [raw sample data](https://drive.google.com/file/d/1LPEPvCerwFNWzcwWL-vXJaQd6HpugDPE/view?usp=sharing) (or use your own `.bed`, `.bim`, `.fam` files.
