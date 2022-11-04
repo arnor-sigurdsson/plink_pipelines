@@ -12,6 +12,8 @@ py = "^1.10.0"
 luigi = "^3.0.3"
 aislib = "^0.1.6-alpha.0"
 pyinstaller = "^4.5.1"
+bed-reader = "^0.2.24"
+deeplake = "^3.0.13"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.5"
