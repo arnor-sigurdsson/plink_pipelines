@@ -271,16 +271,14 @@ def _write_one_hot_arrays_to_deeplake_ds(
 
 
 def _get_one_hot_encoded_generator(
-    chunked_sample_generator: Generator[
-        Tuple[Sequence[str, ...], np.ndarray], None, None
-    ]
+    chunked_sample_generator: Generator[Tuple[Sequence[str], np.ndarray], None, None]
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
 
     for id_chunk, array_chunk in chunked_sample_generator:
         one_hot_encoded = np.eye(4)[array_chunk]
 
         # convert (n_samples, n_snps, 4) -> (n_samples, 4, n_snps)
-        one_hot_encoded = one_hot_encoded.transpose(0, 2, 1).astype(np.uint8)
+        one_hot_encoded = one_hot_encoded.transpose(0, 2, 1).astype(np.int8)
         assert (one_hot_encoded[0].sum(0) == 1).all()
         for id_, array in zip(id_chunk, one_hot_encoded):
             yield id_, array
