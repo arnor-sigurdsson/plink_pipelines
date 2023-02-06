@@ -8,6 +8,8 @@ from typing import Generator, Tuple, Literal, Optional, Sequence
 import deeplake
 import luigi
 import numpy as np
+import torch
+from torch.nn.functional import one_hot
 from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
@@ -263,7 +265,7 @@ def _write_one_hot_arrays_to_deeplake_ds(
         ds = deeplake.empty(ds_path)
         ds.create_tensor("ID", htype="text")
 
-    ds.create_tensor(output_name, dtype="int8")
+    ds.create_tensor(output_name, dtype="int8", sample_compression="lz4")
     with ds:
         for id_, array in id_array_generator:
             sample = {"ID": id_, output_name: array}
@@ -275,11 +277,15 @@ def _get_one_hot_encoded_generator(
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
 
     for id_chunk, array_chunk in chunked_sample_generator:
-        one_hot_encoded = np.eye(4)[array_chunk]
+        array_tensor = torch.from_numpy(array_chunk).to(dtype=torch.long)
+        one_hot_encoded = one_hot(array_tensor, num_classes=4)
 
         # convert (n_samples, n_snps, 4) -> (n_samples, 4, n_snps)
-        one_hot_encoded = one_hot_encoded.transpose(0, 2, 1).astype(np.int8)
+        one_hot_encoded = one_hot_encoded.transpose(2, 1)
+        one_hot_encoded = one_hot_encoded.numpy().astype(np.int8)
+
         assert (one_hot_encoded[0].sum(0) == 1).all()
+        assert one_hot_encoded.dtype == np.int8
         for id_, array in zip(id_chunk, one_hot_encoded):
             yield id_, array
 
@@ -288,13 +294,21 @@ def get_sample_generator_from_bed(
     bed_path: Path,
     chunk_size: int = 1000,
 ) -> Generator[Tuple[np.ndarray, np.ndarray], None, None]:
+    """
+    Note the indexing is a bit weird below, as if we only index the first dimension
+    (which should be individuals), it actually indexes SNPs. So we need to
+    explicitly index both dimensions.
+    """
     with open_bed(bed_path) as bed_handle:
         n_samples = bed_handle.iid_count
 
         for index in range(0, n_samples, chunk_size):
             ids = bed_handle.iid[index : index + chunk_size]
-            arrays = bed_handle.read(np.s_[index : index + chunk_size, :])
-            arrays = arrays.astype(np.int8)
+            arrays = bed_handle.read(
+                index=np.s_[index : index + chunk_size, :],
+                dtype=np.int8,
+            )
+            arrays[arrays == -127] = 3  # NA is encoded as -127
             yield ids, arrays
             logger.info("Processed %s samples.", index + chunk_size)
 
