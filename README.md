@@ -1,4 +1,21 @@
-# plink_pipelines
+# PLINK Pipelines
+
+<p align="center">
+    <a href="LICENSE" alt="License">
+        <img src="https://img.shields.io/badge/License-APGL-5B2D5B.svg" /></a>
+  
+  <a href="https://www.python.org/downloads/" alt="Python">
+        <img src="https://img.shields.io/badge/python-3.10-blue.svg" /></a>
+  
+   <a href="https://pypi.org/project/plink-pipelines/" alt="Python">
+        <img src="https://img.shields.io/pypi/v/plink_pipelines.svg" /></a>
+  
+  <a href="https://codecov.io/gh/arnor-sigurdsson/plink_pipelines" alt="Coverage">
+        <img src="https://codecov.io/gh/arnor-sigurdsson/plink_pipelines/branch/master/graph/badge.svg" /></a>       
+</p>
+
+
+A small program to run pipelines to convert from PLINK [`.bed`, `.bim`, `.fam`] genotype filesets to arrays on disk, e.g. for usage with [EIR](https://github.com/arnor-sigurdsson/EIR) or your own workflows.
 
 ## Installation
 
