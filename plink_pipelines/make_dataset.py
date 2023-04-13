@@ -2,7 +2,7 @@ import argparse
 import subprocess
 import warnings
 from pathlib import Path
-from shutil import copyfile, rmtree
+from shutil import copyfile, rmtree, which
 from typing import Generator, Tuple, Literal, Optional, Sequence
 
 import deeplake
@@ -133,6 +133,8 @@ class PlinkQC(Config):
         return self.clone(ExternalRawData)
 
     def run(self):
+        _validate_plink_exists_in_path()
+
         input_path = Path(self.input().path)
         output_path = Path(self.output().path)
         ensure_path_exists(output_path)
@@ -166,6 +168,14 @@ class PlinkQC(Config):
         subprocess.call(cmd)
 
 
+def _validate_plink_exists_in_path():
+    if which("plink") is None:
+        raise RuntimeError(
+            "plink is not installed or is not in the path. "
+            "Please install plink and try again."
+        )
+
+
 @inherits(ExternalRawData, PlinkExtractAlleles, PlinkQC)
 class OneHotSNPs(Config):
     """
@@ -177,6 +187,7 @@ class OneHotSNPs(Config):
     output_name = luigi.Parameter()
     qc = luigi.BoolParameter()
     extract_snp_file = luigi.Parameter()
+    array_chunk_size = luigi.IntParameter()
     file_name = "processed/encoded_outputs"
 
     def requires(self):
@@ -207,7 +218,7 @@ class OneHotSNPs(Config):
         ensure_path_exists(output_path, is_folder=True)
 
         chunk_generator = get_sample_generator_from_bed(
-            bed_path=input_path, chunk_size=1000
+            bed_path=input_path, chunk_size=int(self.array_chunk_size)
         )
         sample_id_one_hot_array_generator = _get_one_hot_encoded_generator(
             chunked_sample_generator=chunk_generator
@@ -227,7 +238,6 @@ def write_one_hot_outputs(
     output_format: Literal["disk", "deeplake"],
     output_name: Optional[str] = None,
 ) -> None:
-
     if output_format == "disk":
         _write_one_hot_arrays_to_disk(
             id_array_generator=id_array_generator, output_folder=output_folder
@@ -275,7 +285,6 @@ def _write_one_hot_arrays_to_deeplake_ds(
 def _get_one_hot_encoded_generator(
     chunked_sample_generator: Generator[Tuple[Sequence[str], np.ndarray], None, None]
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
-
     for id_chunk, array_chunk in chunked_sample_generator:
         array_tensor = torch.from_numpy(array_chunk).to(dtype=torch.long)
         one_hot_encoded = one_hot(array_tensor, num_classes=4)
@@ -303,9 +312,11 @@ def get_sample_generator_from_bed(
         n_samples = bed_handle.iid_count
 
         for index in range(0, n_samples, chunk_size):
-            ids = bed_handle.iid[index : index + chunk_size]
+            samples_idx_start = index
+            samples_idx_end = index + chunk_size
+            ids = bed_handle.iid[samples_idx_start:samples_idx_end]
             arrays = bed_handle.read(
-                index=np.s_[index : index + chunk_size, :],
+                index=np.s_[samples_idx_start:samples_idx_end, :],
                 dtype=np.int8,
             )
             arrays[arrays == -127] = 3  # NA is encoded as -127
@@ -319,6 +330,7 @@ class FinalizeParsing(luigi.Task):
     output_format = luigi.Parameter()
     output_name = luigi.Parameter()
     qc = luigi.BoolParameter()
+    array_chunk_size = luigi.IntParameter()
     extract_snp_file = luigi.Parameter()
 
     def requires(self):
@@ -357,11 +369,11 @@ class FinalizeParsing(luigi.Task):
 
 @requires(FinalizeParsing)
 class CleanupIntermediateTaskOutputs(luigi.Task):
-
     raw_data_path = luigi.Parameter()
     output_folder = luigi.Parameter()
     output_format = luigi.Parameter()
     qc = luigi.BoolParameter()
+    array_chunk_size = luigi.IntParameter()
     indiv_sample_size = luigi.IntParameter()
     chr_sample = luigi.Parameter()
     autosome_only = luigi.BoolParameter()
@@ -406,7 +418,7 @@ class RunAll(luigi.WrapperTask):
         yield CleanupIntermediateTaskOutputs(**self.config)
 
 
-def get_cl_args():
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--raw_data_path",
@@ -450,21 +462,33 @@ def get_cl_args():
     parser.set_defaults(qc=False)
 
     parser.add_argument(
+        "--array_chunk_size",
+        type=int,
+        default=1000,
+        help="How many individuals to process at a time. "
+        "Useful to avoid running out of memory.",
+    )
+
+    parser.add_argument(
         "--indiv_sample_size",
         type=int,
         default=None,
-        help="How many individuals to randomly sample.",
+        help="How many individuals to randomly sample."
+        " Only applicable if do_qc is set.",
     )
 
     parser.add_argument(
         "--chr_sample",
         type=str,
         default="",
-        help="Which chromosomes to sample, follows plink notation.",
+        help="Which chromosomes to sample, follows plink notation."
+        " Only applicable if do_qc is set.",
     )
 
     parser.add_argument(
-        "--autosome_only", action="store_true", help="Whether to only use autosomes."
+        "--autosome_only",
+        action="store_true",
+        help="Whether to only use autosomes. " "Only applicable if do_qc is set.",
     )
 
     parser.add_argument(
@@ -476,6 +500,11 @@ def get_cl_args():
         "specified .bim file.",
     )
 
+    return parser
+
+
+def get_cl_args():
+    parser = get_parser()
     cl_args = parser.parse_args()
     validate_cl_args(cl_args)
 

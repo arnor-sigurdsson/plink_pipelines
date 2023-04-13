@@ -3,7 +3,6 @@ from pathlib import Path
 
 
 def validate_cl_args(cl_args: Namespace) -> None:
-
     if cl_args.extract_snp_file:
         snp_file_path = Path(cl_args.extract_snp_file)
         error_msg = (
