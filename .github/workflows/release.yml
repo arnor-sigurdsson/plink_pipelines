@@ -23,14 +23,14 @@ jobs:
         run: |
           mkdir -p ~/.local/bin
           echo "${HOME}/.local/bin" >> $GITHUB_PATH
-      - name: Download and extract plink2
+      - name: Download and extract plink
         run: |
           if [[ "${{ matrix.os }}" == "ubuntu-20.04" ]]; then
             curl -LJO https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20230116.zip
           elif [[ "${{ matrix.os }}" == "macos-10.15" ]]; then
             curl -LJO https://s3.amazonaws.com/plink1-assets/plink_mac_20230116.zip
           fi
-          unzip plink_*.zip
+          unzip -n plink_*.zip
           rm plink_*.zip
           chmod +x plink
           ./plink --version
