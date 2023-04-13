@@ -15,7 +15,7 @@
 </p>
 
 
-A small program to run pipelines to convert from PLINK [`.bed`, `.bim`, `.fam`] genotype filesets to NumPy arrays on disk, e.g. for usage with [EIR](https://github.com/arnor-sigurdsson/EIR) or your own workflows.
+A small program to run pipelines to convert from PLINK [`.bed`, `.bim`, `.fam`] genotype filesets to one-hot encoded NumPy arrays on disk, e.g. for usage with [EIR](https://github.com/arnor-sigurdsson/EIR) or your own workflows.
 
 ## Installation
 
