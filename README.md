@@ -2,11 +2,11 @@
 
 ## Installation
 
-Install [Plink](https://www.cog-genomics.org/plink/) and make sure it is accessible from your `PATH`.
-
 ```
 pip install plink-pipelines
 ```
+
+Optionally, install [Plink](https://www.cog-genomics.org/plink/) and make sure it is accessible from your `PATH`. This is needed for some options (e.g., `--do_qc`).
 
 ## Quickstart
 
