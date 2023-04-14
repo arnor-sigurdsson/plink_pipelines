@@ -5,7 +5,7 @@
         <img src="https://img.shields.io/badge/License-APGL-5B2D5B.svg" /></a>
   
   <a href="https://www.python.org/downloads/" alt="Python">
-        <img src="https://img.shields.io/badge/python-3.10-blue.svg" /></a>
+        <img src="https://img.shields.io/badge/python->=3.8-blue.svg" /></a>
   
    <a href="https://pypi.org/project/plink-pipelines/" alt="Python">
         <img src="https://img.shields.io/pypi/v/plink_pipelines.svg" /></a>
