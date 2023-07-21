@@ -6,7 +6,7 @@ authors = ["Arnor Sigurdsson <arnor-sigurdsson@users.noreply.github.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
-pandas = "^1.2.4"
+pandas = "^2.0.3"
 py = "^1.10.0"
 luigi = "^3.0.3"
 aislib = "^0.1.6-alpha.0"
