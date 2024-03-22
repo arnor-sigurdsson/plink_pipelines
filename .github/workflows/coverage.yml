@@ -27,8 +27,8 @@ jobs:
           plink --version
       - name: Run tests with Python
         run: |
-          pip install tox==3.28.0
-          pip install poetry==1.4.2
+          pip install tox==4.14.2
+          pip install poetry==1.8.2
           tox -e py
       - name: Generate report
         uses: codecov/codecov-action@v3
