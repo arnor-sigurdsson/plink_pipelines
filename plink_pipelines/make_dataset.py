@@ -1,6 +1,7 @@
 import argparse
 import subprocess
 import warnings
+import logging
 from pathlib import Path
 from shutil import copyfile, rmtree, which
 from typing import Generator, Tuple, Literal, Optional, Sequence
@@ -18,6 +19,9 @@ from luigi.util import requires, inherits
 from plink_pipelines.validation_functions import validate_cl_args
 
 logger = get_logger(name=__name__)
+
+luigi_logger = logging.getLogger("luigi")
+luigi_logger.setLevel(logging.INFO)
 
 
 class RenameOnFailureMixin(object):
@@ -494,7 +498,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--extract_snp_file",
         type=str,
-        default=None,
+        default="",
         help=".bim file to use if generating only the "
         "intersection between the data and the "
         "specified .bim file.",
