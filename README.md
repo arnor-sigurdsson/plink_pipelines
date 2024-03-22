@@ -4,8 +4,8 @@
     <a href="LICENSE" alt="License">
         <img src="https://img.shields.io/badge/License-APGL-5B2D5B.svg" /></a>
   
-  <a href="https://www.python.org/downloads/" alt="Python">
-        <img src="https://img.shields.io/badge/python->=3.8-blue.svg" /></a>
+<a href="https://www.python.org/downloads/" alt="Python">
+    <img src="https://img.shields.io/badge/python->=3.10,<4.0-blue.svg" /></a>
   
    <a href="https://pypi.org/project/plink-pipelines/" alt="Python">
         <img src="https://img.shields.io/pypi/v/plink_pipelines.svg" /></a>
@@ -37,13 +37,23 @@ To see the full set of options, do `plink_pipelines --help`.
 
 ## Citation
 
-If you use `plink_pipelines` in a scientific publication, we would appreciate if you could use the following citation:
+If you use `plink-pipelines` in a scientific publication, we would appreciate if you could use one of the following citations:
 
 ```
-@article{sigurdsson2021deep,
-  title={Deep integrative models for large-scale human genomics},
-  author={Sigurdsson, Arnor Ingi and Westergaard, David and Winther, Ole and Lund, Ole and Brunak, S{\o}ren and Vilhjalmsson, Bjarni J and Rasmussen, Simon},
-  journal={bioRxiv},
-  year={2021},
-  publisher={Cold Spring Harbor Laboratory}
+@article{10.1093/nar/gkad373,
+    author    = {Sigurdsson, Arn{\'o}r I and Louloudis, Ioannis and Banasik, Karina and Westergaard, David and Winther, Ole and Lund, Ole and Ostrowski, Sisse Rye and Erikstrup, Christian and Pedersen, Ole Birger Vesterager and Nyegaard, Mette and DBDS Genomic Consortium and Brunak, S{\o}ren and Vilhj{\'a}lmsson, Bjarni J and Rasmussen, Simon},
+    title     = {{Deep integrative models for large-scale human genomics}},
+    journal   = {Nucleic Acids Research},
+    month     = {05},
+    year      = {2023}
 }
+
+@article{sigurdsson2022improved,
+    author    = {Sigurdsson, Arnor Ingi and Ravn, Kirstine and Winther, Ole and Lund, Ole and Brunak, S{\o}ren and Vilhjalmsson, Bjarni J and Rasmussen, Simon},
+    title     = {Improved prediction of blood biomarkers using deep learning},
+    journal   = {medRxiv},
+    pages     = {2022--10},
+    year      = {2022},
+    publisher = {Cold Spring Harbor Laboratory Press}
+}
+```
