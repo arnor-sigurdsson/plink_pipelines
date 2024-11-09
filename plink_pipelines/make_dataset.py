@@ -1,7 +1,7 @@
 import argparse
+import logging
 import subprocess
 import warnings
-import logging
 from pathlib import Path
 from shutil import copyfile, rmtree, which
 from typing import Generator, Tuple, Literal, Optional, Sequence
@@ -10,7 +10,6 @@ import deeplake
 import luigi
 import numpy as np
 import torch
-from torch.nn.functional import one_hot
 from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
@@ -289,13 +288,18 @@ def _write_one_hot_arrays_to_deeplake_ds(
 def _get_one_hot_encoded_generator(
     chunked_sample_generator: Generator[Tuple[Sequence[str], np.ndarray], None, None]
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
+    mapping = torch.eye(4, dtype=torch.int8)
+
     for id_chunk, array_chunk in chunked_sample_generator:
-        array_tensor = torch.from_numpy(array_chunk).to(dtype=torch.long)
-        one_hot_encoded = one_hot(array_tensor, num_classes=4)
+        array_tensor = torch.from_numpy(array_chunk)
+        indices = array_tensor.reshape(-1).to(torch.int64)
+
+        one_hot = mapping.index_select(0, indices)
+        one_hot = one_hot.reshape(array_tensor.shape[0], array_tensor.shape[1], 4)
 
         # convert (n_samples, n_snps, 4) -> (n_samples, 4, n_snps)
-        one_hot_encoded = one_hot_encoded.transpose(2, 1)
-        one_hot_encoded = one_hot_encoded.numpy().astype(np.int8)
+        one_hot = one_hot.transpose(2, 1)
+        one_hot_encoded = one_hot.numpy()
 
         assert (one_hot_encoded[0].sum(0) == 1).all()
         assert one_hot_encoded.dtype == np.int8
@@ -312,7 +316,7 @@ def get_sample_generator_from_bed(
     (which should be individuals), it actually indexes SNPs. So we need to
     explicitly index both dimensions.
     """
-    with open_bed(bed_path) as bed_handle:
+    with open_bed(location=bed_path) as bed_handle:
         n_samples = bed_handle.iid_count
 
         for index in range(0, n_samples, chunk_size):
