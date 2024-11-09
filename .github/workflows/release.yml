@@ -6,13 +6,12 @@ on:
       - '*.*.*'
 
 jobs:
-
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04, macos-latest]
-        python-version: ['3.10']
+        os: [ubuntu-22.04, macos-latest]
+        python-version: ['3.12']
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python-version }} on ${{ matrix.os }}
@@ -25,7 +24,7 @@ jobs:
           echo "${HOME}/.local/bin" >> $GITHUB_PATH
       - name: Download and extract plink
         run: |
-          if [[ "${{ matrix.os }}" == "ubuntu-20.04" ]]; then
+          if [[ "${{ matrix.os }}" == "ubuntu-22.04" ]]; then
             curl -LJO https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20230116.zip
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             curl -LJO https://s3.amazonaws.com/plink1-assets/plink_mac_20230116.zip
@@ -38,21 +37,20 @@ jobs:
           plink --version
       - name: Run tests with Python ${{ matrix.python-version }} on ${{ matrix.os }}
         run: |
-          pip install tox==4.14.2
+          pip install tox==4.14.1
           pip install poetry==1.8.2
           tox -e py
 
   getrelease:
     name: Get release
     needs: test
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     outputs:
       versionoutput: ${{ steps.getversiontag.outputs.VERSION }}
     steps:
       - name: Get the tag version
         id: getversiontag
-        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
-
+        run: echo "VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
 
   build:
     name: Build packages
@@ -63,17 +61,15 @@ jobs:
     strategy:
       matrix:
         include:
-
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             TARGET: ubuntu
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Release
         id: release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -82,14 +78,13 @@ jobs:
   upload:
     name: Upload to PyPI
     needs: [build]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
           architecture: x64
       - run: pip install poetry==1.8.2
       - run: poetry build
       - run: poetry publish --username=__token__ --password=${{ secrets.PYPI_TOKEN }}
-
