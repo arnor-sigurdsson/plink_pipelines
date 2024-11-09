@@ -37,8 +37,8 @@ jobs:
           plink --version
       - name: Run tests with Python ${{ matrix.python-version }} on ${{ matrix.os }}
         run: |
-          pip install tox==4.14.1
-          pip install poetry==1.8.2
+          pip install tox==4.23.2
+          pip install poetry==1.8.3
           tox -e py
 
   getrelease:
@@ -85,6 +85,6 @@ jobs:
         with:
           python-version: '3.12'
           architecture: x64
-      - run: pip install poetry==1.8.2
+      - run: pip install poetry==1.8.3
       - run: poetry build
       - run: poetry publish --username=__token__ --password=${{ secrets.PYPI_TOKEN }}
