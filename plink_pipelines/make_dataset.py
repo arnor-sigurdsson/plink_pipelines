@@ -14,6 +14,7 @@ from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
 from luigi.util import inherits, requires
+from numpy.ma.core import shape
 
 from plink_pipelines.validation_functions import validate_cl_args
 
@@ -297,19 +298,25 @@ def _write_one_hot_arrays_to_deeplake_ds(
         ds.add_column("ID", dtype=deeplake.types.Text())
         array_schema = deeplake.types.Array(dtype="bool", shape=array_shape)
         ds.add_column(output_name, dtype=array_schema)
-
         ds.commit()
 
+    assert first_array.flags["C_CONTIGUOUS"], "Array not C-contiguous!"
+
+    ds.append({"ID": [first_id], output_name: [first_array]})
+    ds.commit()
+
     try:
-        batch = {"ID": [first_id], output_name: [first_array]}
+        batch = {"ID": [], output_name: []}
         sample_count = 1
 
         for id_, array in id_array_generator:
             if list(array.shape) != array_shape:
                 raise ValueError(
-                    f"Array shape mismatch at ID {id_}. "
-                    f"Expected {array_shape}, got {list(array.shape)}"
+                    f"Array shape mismatch at ID {id_}. Expected {array_shape}, "
+                    f"got {list(array.shape)}"
                 )
+
+            assert array.flags["C_CONTIGUOUS"], f"Array for {id_} not C-contiguous!"
 
             batch["ID"].append(id_)
             batch[output_name].append(array)
@@ -336,6 +343,28 @@ def _write_one_hot_arrays_to_deeplake_ds(
 def _get_one_hot_encoded_generator(
     chunked_sample_generator: Generator[Tuple[Sequence[str], np.ndarray], None, None]
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
+    """
+    IMPORTANT NOTE ON MEMORY LAYOUT in DeepLake V4:
+    This function ensures proper memory layout for storage in DeepLake. The PyTorch
+    transpose operation creates arrays in Fortran order (column-major) memory layout:
+        - Original data: C_CONTIGUOUS=True, F_CONTIGUOUS=False
+        - After transpose: C_CONTIGUOUS=False, F_CONTIGUOUS=True
+
+    DeepLake assumes C-order (row-major) when storing/loading arrays. If we store
+    a Fortran-ordered array, Deep Lake will read the memory in the wrong order,
+    corrupting the data. Consider this example:
+
+    Fortran-ordered memory of a one-hot array:
+        Memory: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
+        Intended shape (4x4):    When Deep Lake reads in C-order:
+        1 0 0 0                  1 1 0 0
+        0 1 0 0      -->         0 0 0 0
+        0 0 1 0                  0 0 0 0
+        0 0 0 1                  0 0 1 1
+
+    To prevent this, we use np.ascontiguousarray() to ensure C-ordered memory
+    layout before yielding the arrays for storage.
+    """
     mapping = torch.eye(4, dtype=torch.int8)
 
     for id_chunk, array_chunk in chunked_sample_generator:
@@ -347,10 +376,12 @@ def _get_one_hot_encoded_generator(
 
         # convert (n_samples, n_snps, 4) -> (n_samples, 4, n_snps)
         one_hot = one_hot.transpose(2, 1)
-        one_hot_encoded = one_hot.numpy()
+
+        one_hot_encoded = np.ascontiguousarray(one_hot.numpy())
 
         assert (one_hot_encoded[0].sum(0) == 1).all()
         assert one_hot_encoded.dtype == np.int8
+
         for id_, array in zip(id_chunk, one_hot_encoded):
             yield id_, array
 
