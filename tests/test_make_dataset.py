@@ -15,8 +15,8 @@ def _get_test_cl_commands() -> list[str]:
 
     extras = [
         " --output_format deeplake",
-        # " --array_chunk_size 100",
-        # " --do_qc --autosome_only",
+        " --array_chunk_size 100",
+        " --do_qc --autosome_only",
     ]
 
     for extra in extras:
