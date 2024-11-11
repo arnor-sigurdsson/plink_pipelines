@@ -232,7 +232,6 @@ class OneHotSNPs(Config):
             output_folder=output_path,
             output_format=str(self.output_format),
             output_name=str(self.output_name),
-            batch_size=int(self.array_chunk_size),
         )
 
 
@@ -240,7 +239,6 @@ def write_one_hot_outputs(
     id_array_generator: Generator[Tuple[str, np.ndarray], None, None],
     output_folder: Path,
     output_format: Literal["disk", "deeplake"],
-    batch_size: int,
     output_name: Optional[str] = None,
 ) -> None:
     if output_format == "disk":
@@ -254,7 +252,6 @@ def write_one_hot_outputs(
             id_array_generator=id_array_generator,
             output_folder=output_folder,
             output_name=output_name,
-            batch_size=batch_size,
         )
     else:
         raise ValueError(f"Unknown output format {output_format}")
@@ -273,64 +270,20 @@ def _write_one_hot_arrays_to_deeplake_ds(
     id_array_generator: Generator[Tuple[str, np.ndarray], None, None],
     output_folder: Path,
     output_name: str,
-    batch_size: int,
-    commit_frequency: int = 1024,
-) -> int:
-    ds_path = str(output_folder / output_name)
-
-    try:
-        first_id, first_array = next(id_array_generator)
-    except StopIteration:
-        raise ValueError("Generator is empty")
-
-    array_shape = list(first_array.shape)
-
+):
+    ds_path = output_folder / output_name
     if deeplake.exists(ds_path):
-        ds = deeplake.open(ds_path)
-        columns = {col.name for col in ds.schema.columns}
-        if "ID" not in columns:
-            raise ValueError(
-                f"Existing dataset at {ds_path} missing required 'ID' column"
-            )
+        ds = deeplake.load(ds_path)
+        assert "ID" in ds.tensors
     else:
-        ds = deeplake.create(ds_path)
-        ds.add_column("ID", dtype=deeplake.types.Text())
-        array_schema = deeplake.types.Array(dtype="bool", shape=array_shape)
-        ds.add_column(output_name, dtype=array_schema)
+        ds = deeplake.empty(ds_path)
+        ds.create_tensor("ID", htype="text")
 
-        ds.commit()
-
-    try:
-        batch = {"ID": [first_id], output_name: [first_array]}
-        sample_count = 1
-
+    ds.create_tensor(output_name, dtype="int8", sample_compression="lz4")
+    with ds:
         for id_, array in id_array_generator:
-            if list(array.shape) != array_shape:
-                raise ValueError(
-                    f"Array shape mismatch at ID {id_}. "
-                    f"Expected {array_shape}, got {list(array.shape)}"
-                )
-
-            batch["ID"].append(id_)
-            batch[output_name].append(array)
-            sample_count += 1
-
-            if len(batch["ID"]) >= batch_size:
-                ds.append(batch)
-                batch = {"ID": [], output_name: []}
-
-            if sample_count % commit_frequency == 0:
-                ds.commit(f"Processed {sample_count} samples")
-
-        if batch["ID"]:
-            ds.append(batch)
-
-    except Exception as e:
-        ds.rollback()
-        raise RuntimeError(f"Error processing samples: {str(e)}") from e
-
-    ds.commit(f"Completed processing {sample_count} samples")
-    return sample_count
+            sample = {"ID": id_, output_name: array}
+            ds.append(sample)
 
 
 def _get_one_hot_encoded_generator(

@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 
+import deeplake
 import numpy as np
 import pytest
 
@@ -50,10 +51,28 @@ def test_run_plink_pipelines(command: str, tmp_path: Path) -> None:
     assert full_snps_path.exists()
     assert data_final_bim_path.exists()
 
+    raw_data_folder = Path("tests/test_data/")
     if "--do_qc" not in command and "deeplake" not in command:
         validate_npy_files(
-            path=encoded_outputs_path, raw_data_folder=Path("tests/test_data/")
+            path=encoded_outputs_path,
+            raw_data_folder=raw_data_folder,
         )
+
+    if "deeplake" in command:
+        ds_path = tmp_path / "processed/full_inds/full_chrs/encoded_outputs/genotype"
+        ds = deeplake.load(str(ds_path))
+
+        fam_file = next(i for i in raw_data_folder.iterdir() if i.suffix == ".fam")
+        bim_file = next(i for i in raw_data_folder.iterdir() if i.suffix == ".bim")
+
+        expected_samples = _lines_in_file(file_path=fam_file)
+        expected_snps = _lines_in_file(file_path=bim_file)
+        expected_shape = (4, expected_snps)
+        with ds:
+            for row in ds:
+                assert len(ds) == expected_samples
+                assert row["genotype"].numpy().shape == expected_shape
+                assert (row["genotype"].numpy().sum(0) == 1).all()
 
 
 def _lines_in_file(file_path: Path) -> int:

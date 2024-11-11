@@ -11,9 +11,8 @@ py = "^1.11.0"
 luigi = "^3.5.0"
 aislib = "^0.1.6-alpha.0"
 bed-reader = "^1.0.2"
-deeplake = "^4.0.1"
 numpy = "^1.26.4"
-libdeeplake = "^0.0.148"
+deeplake = "^3.0"
 
 [tool.poetry.scripts]
 plink_pipelines = "plink_pipelines.make_dataset:main"
