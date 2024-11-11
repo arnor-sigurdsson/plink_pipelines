@@ -4,7 +4,7 @@ import subprocess
 import warnings
 from pathlib import Path
 from shutil import copyfile, rmtree, which
-from typing import Generator, Tuple, Literal, Optional, Sequence
+from typing import Generator, Literal, Optional, Sequence, Tuple
 
 import deeplake
 import luigi
@@ -13,7 +13,7 @@ import torch
 from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
-from luigi.util import requires, inherits
+from luigi.util import inherits, requires
 
 from plink_pipelines.validation_functions import validate_cl_args
 
