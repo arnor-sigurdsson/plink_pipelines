@@ -13,6 +13,7 @@ def _get_test_cl_commands() -> list[str]:
     ]
 
     extras = [
+        " --output_format deeplake",
         " --array_chunk_size 100",
         " --do_qc --autosome_only",
     ]
@@ -49,7 +50,7 @@ def test_run_plink_pipelines(command: str, tmp_path: Path) -> None:
     assert full_snps_path.exists()
     assert data_final_bim_path.exists()
 
-    if "--do_qc" not in command:
+    if "--do_qc" not in command and "deeplake" not in command:
         validate_npy_files(
             path=encoded_outputs_path, raw_data_folder=Path("tests/test_data/")
         )
