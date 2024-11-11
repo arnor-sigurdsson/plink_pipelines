@@ -270,19 +270,36 @@ def _write_one_hot_arrays_to_deeplake_ds(
     output_folder: Path,
     output_name: str,
 ):
-    ds_path = output_folder / output_name
-    if deeplake.exists(ds_path):
-        ds = deeplake.load(ds_path)
-        assert "ID" in ds.tensors
-    else:
-        ds = deeplake.empty(ds_path)
-        ds.create_tensor("ID", htype="text")
+    ds_path = str(output_folder / output_name)
 
-    ds.create_tensor(output_name, dtype="int8", sample_compression="lz4")
-    with ds:
-        for id_, array in id_array_generator:
-            sample = {"ID": id_, output_name: array}
-            ds.append(sample)
+    try:
+        first_id, first_array = next(id_array_generator)
+    except StopIteration:
+        raise ValueError("Generator is empty")
+
+    array_shape = list(first_array.shape)
+
+    if deeplake.exists(ds_path):
+        ds = deeplake.open(ds_path)
+        columns = {col.name for col in ds.schema.columns}
+        assert "ID" in columns
+    else:
+        ds = deeplake.create(ds_path)
+        ds.add_column("ID", dtype=deeplake.types.Text())
+
+        array_schema = deeplake.types.Array(dtype="bool", shape=array_shape)
+        ds.add_column(output_name, dtype=array_schema)
+
+    ds.commit()
+
+    sample = {"ID": [first_id], output_name: [first_array]}
+    ds.append(sample)
+
+    for id_, array in id_array_generator:
+        sample = {"ID": [id_], output_name: [array]}
+        ds.append(sample)
+
+    ds.commit()
 
 
 def _get_one_hot_encoded_generator(
