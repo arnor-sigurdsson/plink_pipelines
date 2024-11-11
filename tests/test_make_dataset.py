@@ -1,8 +1,8 @@
 import subprocess
 from pathlib import Path
 
-import numpy as np
 import deeplake
+import numpy as np
 import pytest
 
 

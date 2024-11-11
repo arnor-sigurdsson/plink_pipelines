@@ -14,7 +14,6 @@ from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
 from luigi.util import inherits, requires
-from numpy.ma.core import shape
 
 from plink_pipelines.validation_functions import validate_cl_args
 
