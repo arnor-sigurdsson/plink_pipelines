@@ -12,7 +12,6 @@ from typing import Generator, Literal, Optional, Sequence, Tuple
 import deeplake
 import luigi
 import numpy as np
-import psutil
 from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
