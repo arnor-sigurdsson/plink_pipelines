@@ -1,7 +1,10 @@
 import argparse
 import logging
+import os
 import subprocess
 import warnings
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from pathlib import Path
 from shutil import copyfile, rmtree, which
 from typing import Generator, Literal, Optional, Sequence, Tuple
@@ -9,7 +12,7 @@ from typing import Generator, Literal, Optional, Sequence, Tuple
 import deeplake
 import luigi
 import numpy as np
-import torch
+import psutil
 from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
@@ -260,13 +263,37 @@ def write_one_hot_outputs(
         raise ValueError(f"Unknown output format {output_format}")
 
 
+def _save_array(output_folder: Path, id_array: Tuple[str, np.ndarray]) -> Path:
+    id_, array = id_array
+    output_path = output_folder / f"{id_}.npy"
+    np.save(str(output_path), array)
+    return output_path
+
+
 def _write_one_hot_arrays_to_disk(
     id_array_generator: Generator[Tuple[str, np.ndarray], None, None],
     output_folder: Path,
-):
-    for id_, array in id_array_generator:
-        output_path = output_folder / f"{id_}.npy"
-        np.save(str(output_path), array)
+    batch_size: int = 1000,
+    max_workers: int = 16,
+) -> None:
+    cpu_count = os.cpu_count() or 1
+    max_workers = min(cpu_count * 2, max_workers)
+
+    save_fn = partial(_save_array, output_folder)
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        batch = []
+        for item in id_array_generator:
+            batch.append(item)
+
+            if len(batch) >= batch_size:
+                futures = list(executor.map(save_fn, batch))
+                _ = [f for f in futures]
+                batch = []
+
+        if batch:
+            futures = list(executor.map(save_fn, batch))
+            _ = [f for f in futures]
 
 
 def _write_one_hot_arrays_to_deeplake_ds(
@@ -339,6 +366,21 @@ def _write_one_hot_arrays_to_deeplake_ds(
     return sample_count
 
 
+def parallel_one_hot(array_chunk: np.ndarray, mapping: np.ndarray) -> np.ndarray:
+    """
+    TODO:
+        Decorate with '@numba.njit(parallel=True)' and change sample loop
+        to numba prange once numba supports numpy>=2.1.3 (once numba version 0.61 is
+        released).
+    """
+    n_samples, n_features = array_chunk.shape
+    result = np.empty((n_samples, n_features, 4), dtype=np.int8)
+    for i in range(n_samples):  # TODO: change to prange
+        for j in range(n_features):
+            result[i, j] = mapping[array_chunk[i, j]]
+    return result
+
+
 def _get_one_hot_encoded_generator(
     chunked_sample_generator: Generator[Tuple[Sequence[str], np.ndarray], None, None]
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
@@ -364,24 +406,19 @@ def _get_one_hot_encoded_generator(
     To prevent this, we use np.ascontiguousarray() to ensure C-ordered memory
     layout before yielding the arrays for storage.
     """
-    mapping = torch.eye(4, dtype=torch.int8)
+    mapping = np.eye(4, dtype=np.int8)
 
     for id_chunk, array_chunk in chunked_sample_generator:
-        array_tensor = torch.from_numpy(array_chunk)
-        indices = array_tensor.reshape(-1).to(torch.int64)
+        one_hot = mapping[array_chunk]
 
-        one_hot = mapping.index_select(0, indices)
-        one_hot = one_hot.reshape(array_tensor.shape[0], array_tensor.shape[1], 4)
+        one_hot_transposed = np.transpose(one_hot, (0, 2, 1))
 
-        # convert (n_samples, n_snps, 4) -> (n_samples, 4, n_snps)
-        one_hot = one_hot.transpose(2, 1)
+        one_hot_final = np.ascontiguousarray(one_hot_transposed)
 
-        one_hot_encoded = np.ascontiguousarray(one_hot.numpy())
+        assert (one_hot_final[0].sum(0) == 1).all()
+        assert one_hot_final.dtype == np.int8
 
-        assert (one_hot_encoded[0].sum(0) == 1).all()
-        assert one_hot_encoded.dtype == np.int8
-
-        for id_, array in zip(id_chunk, one_hot_encoded):
+        for id_, array in zip(id_chunk, one_hot_final):
             yield id_, array
 
 
