@@ -2,13 +2,13 @@
 
 [[package]]
 name = "aislib"
-version = "0.2.0"
+version = "0.3.0"
 description = ""
 optional = false
 python-versions = "<4.0,>=3.10"
 files = [
-    {file = "aislib-0.2.0-py3-none-any.whl", hash = "sha256:e06fd89dc02e80fb0b03a821de19e2767aa30023f5d0cd83d5c83703c1592c79"},
-    {file = "aislib-0.2.0.tar.gz", hash = "sha256:f71946b8e9297de29af35dc8fb09ae58cf5ccfe1e4c008dd60e6005be39b4c84"},
+    {file = "aislib-0.3.0-py3-none-any.whl", hash = "sha256:56e9e5b08478a999f5da5393f988f9de3ff175f1f336788afc5c990b2be330fb"},
+    {file = "aislib-0.3.0.tar.gz", hash = "sha256:30b2c43da475bdda57ff63ec540df195e1bd154fab4f60c96ba91ab92690fce3"},
 ]
 
 [package.dependencies]
@@ -19,6 +19,7 @@ py = ">=1.11.0,<2.0.0"
 scikit-learn = ">=1.5.1,<2.0.0"
 seaborn = ">=0,<1"
 sympy = ">=1.13.1,<2.0.0"
+termcolor = ">=2.5.0,<3.0.0"
 torch = ">=2.4.0,<3.0.0"
 torchvision = ">=0,<1"
 tqdm = ">=4.66.4,<5.0.0"
@@ -3990,6 +3991,20 @@ doc = ["reno", "sphinx"]
 test = ["pytest", "tornado (>=4.5)", "typeguard"]
 
 [[package]]
+name = "termcolor"
+version = "2.5.0"
+description = "ANSI color formatting for output in terminal"
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "termcolor-2.5.0-py3-none-any.whl", hash = "sha256:37b17b5fc1e604945c2642c872a3764b5d547a48009871aea3edd3afa180afb8"},
+    {file = "termcolor-2.5.0.tar.gz", hash = "sha256:998d8d27da6d48442e8e1f016119076b690d962507531df4890fcd2db2ef8a6f"},
+]
+
+[package.extras]
+tests = ["pytest", "pytest-cov"]
+
+[[package]]
 name = "terminado"
 version = "0.18.1"
 description = "Tornado websocket backend for the Xterm.js Javascript terminal emulator library."
@@ -4449,4 +4464,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<4.0"
-content-hash = "2a12ba9fc765f7f2e4991c0266ef6942fd0b362cfe54b0e3fc06acf751f1d0b9"
+content-hash = "4b4fd177e060ed8f2d75b4bdcdf7b08b961a056a609eea6eb6e74d6ef78872ee"
