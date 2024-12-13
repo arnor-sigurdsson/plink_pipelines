@@ -12,6 +12,8 @@ from typing import Generator, Literal, Optional, Sequence, Tuple
 import deeplake
 import luigi
 import numpy as np
+from numba import prange
+import numba
 from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
@@ -103,6 +105,7 @@ class PlinkExtractAlleles(Config):
     file_name = "interim/0_filtering_files/0_data_extracted/data_plink_extracted.bed"
 
     def run(self):
+        _validate_plink_exists_in_path()
         input_path = Path(self.input().path)
         output_path = Path(self.output().path)
         ensure_path_exists(output_path)
@@ -226,7 +229,8 @@ class OneHotSNPs(Config):
             bed_path=input_path, chunk_size=int(self.array_chunk_size)
         )
         sample_id_one_hot_array_generator = _get_one_hot_encoded_generator(
-            chunked_sample_generator=chunk_generator
+            chunked_sample_generator=chunk_generator,
+            output_format=self.output_format,
         )
 
         write_one_hot_outputs(
@@ -365,23 +369,19 @@ def _write_one_hot_arrays_to_deeplake_ds(
     return sample_count
 
 
+@numba.njit(parallel=True)
 def parallel_one_hot(array_chunk: np.ndarray, mapping: np.ndarray) -> np.ndarray:
-    """
-    TODO:
-        Decorate with '@numba.njit(parallel=True)' and change sample loop
-        to numba prange once numba supports numpy>=2.1.3 (once numba version 0.61 is
-        released).
-    """
     n_samples, n_features = array_chunk.shape
     result = np.empty((n_samples, n_features, 4), dtype=np.int8)
-    for i in range(n_samples):  # TODO: change to prange
+    for i in prange(n_samples):
         for j in range(n_features):
             result[i, j] = mapping[array_chunk[i, j]]
     return result
 
 
 def _get_one_hot_encoded_generator(
-    chunked_sample_generator: Generator[Tuple[Sequence[str], np.ndarray], None, None]
+    chunked_sample_generator: Generator[Tuple[Sequence[str], np.ndarray], None, None],
+    output_format: Literal["disk", "deeplake"],
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
     """
     IMPORTANT NOTE ON MEMORY LAYOUT in DeepLake V4:
@@ -408,11 +408,14 @@ def _get_one_hot_encoded_generator(
     mapping = np.eye(4, dtype=np.int8)
 
     for id_chunk, array_chunk in chunked_sample_generator:
-        one_hot = mapping[array_chunk]
+        one_hot = parallel_one_hot(array_chunk=array_chunk, mapping=mapping)
 
         one_hot_transposed = np.transpose(one_hot, (0, 2, 1))
 
-        one_hot_final = np.ascontiguousarray(one_hot_transposed)
+        if output_format == "deeplake":
+            one_hot_final = np.ascontiguousarray(one_hot_transposed)
+        else:
+            one_hot_final = one_hot_transposed
 
         assert (one_hot_final[0].sum(0) == 1).all()
         assert one_hot_final.dtype == np.int8
