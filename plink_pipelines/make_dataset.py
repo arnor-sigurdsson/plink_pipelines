@@ -370,13 +370,13 @@ def _write_one_hot_arrays_to_deeplake_ds(
 
 
 @numba.njit(parallel=True)
-def parallel_one_hot(array_chunk: np.ndarray, mapping: np.ndarray) -> np.ndarray:
+def parallel_one_hot(array_chunk: np.ndarray, mapping: np.ndarray, output: np.ndarray) -> None:
     n_samples, n_features = array_chunk.shape
-    result = np.empty((n_samples, n_features, 4), dtype=np.int8)
+    
     for i in prange(n_samples):
         for j in range(n_features):
-            result[i, j] = mapping[array_chunk[i, j]]
-    return result
+            for k in range(4):
+                output[i, k, j] = mapping[array_chunk[i, j], k]
 
 
 def _get_one_hot_encoded_generator(
@@ -385,40 +385,21 @@ def _get_one_hot_encoded_generator(
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
     """
     IMPORTANT NOTE ON MEMORY LAYOUT in DeepLake V4:
-    This function ensures proper memory layout for storage in DeepLake. The PyTorch
-    transpose operation creates arrays in Fortran order (column-major) memory layout:
-        - Original data: C_CONTIGUOUS=True, F_CONTIGUOUS=False
-        - After transpose: C_CONTIGUOUS=False, F_CONTIGUOUS=True
-
-    DeepLake assumes C-order (row-major) when storing/loading arrays. If we store
-    a Fortran-ordered array, Deep Lake will read the memory in the wrong order,
-    corrupting the data. Consider this example:
-
-    Fortran-ordered memory of a one-hot array:
-        Memory: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
-        Intended shape (4x4):    When Deep Lake reads in C-order:
-        1 0 0 0                  1 1 0 0
-        0 1 0 0      -->         0 0 0 0
-        0 0 1 0                  0 0 0 0
-        0 0 0 1                  0 0 1 1
-
-    To prevent this, we use np.ascontiguousarray() to ensure C-ordered memory
-    layout before yielding the arrays for storage.
+    DeepLake assumes C-order (row-major) when storing/loading arrays. 
+    We pre-allocate arrays with order='C' to ensure correct memory layout.
     """
     mapping = np.eye(4, dtype=np.int8)
 
     for id_chunk, array_chunk in chunked_sample_generator:
-        one_hot = parallel_one_hot(array_chunk=array_chunk, mapping=mapping)
-
-        one_hot_transposed = np.transpose(one_hot, (0, 2, 1))
-
-        if output_format == "deeplake":
-            one_hot_final = np.ascontiguousarray(one_hot_transposed)
-        else:
-            one_hot_final = one_hot_transposed
+        n_samples, n_features = array_chunk.shape
+        
+        one_hot_final = np.empty((n_samples, 4, n_features), dtype=np.int8, order='C')
+        
+        parallel_one_hot(array_chunk, mapping, one_hot_final)
 
         assert (one_hot_final[0].sum(0) == 1).all()
         assert one_hot_final.dtype == np.int8
+        assert one_hot_final.flags['C_CONTIGUOUS'], "Array not C-contiguous!"
 
         for id_, array in zip(id_chunk, one_hot_final):
             yield id_, array
