@@ -371,8 +371,14 @@ def _write_one_hot_arrays_to_deeplake_ds(
 
 @numba.njit(parallel=True)
 def parallel_one_hot(
-    array_chunk: np.ndarray, mapping: np.ndarray, output: np.ndarray
+    array_chunk: np.ndarray,
+    mapping: np.ndarray,
+    output: np.ndarray,
 ) -> None:
+    """
+    Note the inner range(4) loop is seems to be faster than e.g. using
+    output[i, j] = mapping[array_chunk[i, j]].
+    """
     n_samples, n_features = array_chunk.shape
 
     for i in prange(n_samples):
