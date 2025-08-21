@@ -370,9 +370,11 @@ def _write_one_hot_arrays_to_deeplake_ds(
 
 
 @numba.njit(parallel=True)
-def parallel_one_hot(array_chunk: np.ndarray, mapping: np.ndarray, output: np.ndarray) -> None:
+def parallel_one_hot(
+    array_chunk: np.ndarray, mapping: np.ndarray, output: np.ndarray
+) -> None:
     n_samples, n_features = array_chunk.shape
-    
+
     for i in prange(n_samples):
         for j in range(n_features):
             for k in range(4):
@@ -385,21 +387,21 @@ def _get_one_hot_encoded_generator(
 ) -> Generator[Tuple[str, np.ndarray], None, None]:
     """
     IMPORTANT NOTE ON MEMORY LAYOUT in DeepLake V4:
-    DeepLake assumes C-order (row-major) when storing/loading arrays. 
+    DeepLake assumes C-order (row-major) when storing/loading arrays.
     We pre-allocate arrays with order='C' to ensure correct memory layout.
     """
     mapping = np.eye(4, dtype=np.int8)
 
     for id_chunk, array_chunk in chunked_sample_generator:
         n_samples, n_features = array_chunk.shape
-        
-        one_hot_final = np.empty((n_samples, 4, n_features), dtype=np.int8, order='C')
-        
+
+        one_hot_final = np.empty((n_samples, 4, n_features), dtype=np.int8, order="C")
+
         parallel_one_hot(array_chunk, mapping, one_hot_final)
 
         assert (one_hot_final[0].sum(0) == 1).all()
         assert one_hot_final.dtype == np.int8
-        assert one_hot_final.flags['C_CONTIGUOUS'], "Array not C-contiguous!"
+        assert one_hot_final.flags["C_CONTIGUOUS"], "Array not C-contiguous!"
 
         for id_, array in zip(id_chunk, one_hot_final):
             yield id_, array
