@@ -75,7 +75,7 @@ def test_run_plink_pipelines(command: str, tmp_path: Path) -> None:
 
 
 def _lines_in_file(file_path: Path) -> int:
-    with open(file_path, "r") as f:
+    with open(file_path) as f:
         return sum(1 for _ in f)
 
 

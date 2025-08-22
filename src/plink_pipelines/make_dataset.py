@@ -3,23 +3,24 @@ import logging
 import os
 import subprocess
 import warnings
+from collections.abc import Generator, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from pathlib import Path
 from shutil import copyfile, rmtree, which
-from typing import Generator, Literal, Optional, Sequence, Tuple
+from typing import Literal
 
 import deeplake
 import luigi
-import numpy as np
-from numba import prange
 import numba
+import numpy as np
 from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
 from luigi.util import inherits, requires
+from numba import prange
 
-from plink_pipelines.validation_functions import validate_cl_args
+from src.plink_pipelines.validation_functions import validate_cl_args
 
 logger = get_logger(name=__name__)
 
@@ -27,7 +28,7 @@ luigi_logger = logging.getLogger("luigi")
 luigi_logger.setLevel(logging.INFO)
 
 
-class RenameOnFailureMixin(object):
+class RenameOnFailureMixin:
     def on_failure(self, exception):
         targets = luigi.task.flatten(self.output())
         for target in targets:
@@ -50,8 +51,7 @@ class Config(luigi.Task, RenameOnFailureMixin):
         ]
         if len(bed_files) != 1:
             raise ValueError(
-                f"Expected one .bed file in {self.raw_data_path}, but"
-                f"found {bed_files}."
+                f"Expected one .bed file in {self.raw_data_path}, butfound {bed_files}."
             )
         return str(bed_files[0])
 
@@ -88,8 +88,7 @@ class ExternalRawData(luigi.ExternalTask):
         ]
         if len(bed_files) != 1:
             raise ValueError(
-                f"Expected one .bed file in {self.raw_data_path}, but"
-                f"found {bed_files}."
+                f"Expected one .bed file in {self.raw_data_path}, butfound {bed_files}."
             )
         return str(bed_files[0])
 
@@ -236,18 +235,18 @@ class OneHotSNPs(Config):
         write_one_hot_outputs(
             id_array_generator=sample_id_one_hot_array_generator,
             output_folder=output_path,
-            output_format=str(self.output_format),
+            output_format=self.output_format,
             output_name=str(self.output_name),
             batch_size=int(self.array_chunk_size),
         )
 
 
 def write_one_hot_outputs(
-    id_array_generator: Generator[Tuple[str, np.ndarray], None, None],
+    id_array_generator: Generator[tuple[str, np.ndarray], None, None],
     output_folder: Path,
     output_format: Literal["disk", "deeplake"],
     batch_size: int,
-    output_name: Optional[str] = None,
+    output_name: str | None = None,
 ) -> None:
     if output_format == "disk":
         _write_one_hot_arrays_to_disk(
@@ -266,7 +265,7 @@ def write_one_hot_outputs(
         raise ValueError(f"Unknown output format {output_format}")
 
 
-def _save_array(output_folder: Path, id_array: Tuple[str, np.ndarray]) -> Path:
+def _save_array(output_folder: Path, id_array: tuple[str, np.ndarray]) -> Path:
     id_, array = id_array
     output_path = output_folder / f"{id_}.npy"
     np.save(str(output_path), array)
@@ -274,7 +273,7 @@ def _save_array(output_folder: Path, id_array: Tuple[str, np.ndarray]) -> Path:
 
 
 def _write_one_hot_arrays_to_disk(
-    id_array_generator: Generator[Tuple[str, np.ndarray], None, None],
+    id_array_generator: Generator[tuple[str, np.ndarray], None, None],
     output_folder: Path,
     batch_size: int = 1000,
     max_workers: int = 16,
@@ -291,16 +290,16 @@ def _write_one_hot_arrays_to_disk(
 
             if len(batch) >= batch_size:
                 futures = list(executor.map(save_fn, batch))
-                _ = [f for f in futures]
+                _ = list(futures)
                 batch = []
 
         if batch:
             futures = list(executor.map(save_fn, batch))
-            _ = [f for f in futures]
+            _ = list(futures)
 
 
 def _write_one_hot_arrays_to_deeplake_ds(
-    id_array_generator: Generator[Tuple[str, np.ndarray], None, None],
+    id_array_generator: Generator[tuple[str, np.ndarray], None, None],
     output_folder: Path,
     output_name: str,
     batch_size: int,
@@ -310,8 +309,8 @@ def _write_one_hot_arrays_to_deeplake_ds(
 
     try:
         first_id, first_array = next(id_array_generator)
-    except StopIteration:
-        raise ValueError("Generator is empty")
+    except StopIteration as e:
+        raise ValueError("Generator is empty") from e
 
     array_shape = list(first_array.shape)
 
@@ -381,16 +380,16 @@ def parallel_one_hot(
     """
     n_samples, n_features = array_chunk.shape
 
-    for i in prange(n_samples):
+    for i in prange(n_samples):  # type: ignore[not-iterable]
         for j in range(n_features):
             for k in range(4):
                 output[i, k, j] = mapping[array_chunk[i, j], k]
 
 
 def _get_one_hot_encoded_generator(
-    chunked_sample_generator: Generator[Tuple[Sequence[str], np.ndarray], None, None],
+    chunked_sample_generator: Generator[tuple[Sequence[str], np.ndarray], None, None],
     output_format: Literal["disk", "deeplake"],
-) -> Generator[Tuple[str, np.ndarray], None, None]:
+) -> Generator[tuple[str, np.ndarray], None, None]:
     """
     IMPORTANT NOTE ON MEMORY LAYOUT in DeepLake V4:
     DeepLake assumes C-order (row-major) when storing/loading arrays.
@@ -409,14 +408,13 @@ def _get_one_hot_encoded_generator(
         assert one_hot_final.dtype == np.int8
         assert one_hot_final.flags["C_CONTIGUOUS"], "Array not C-contiguous!"
 
-        for id_, array in zip(id_chunk, one_hot_final):
-            yield id_, array
+        yield from zip(id_chunk, one_hot_final, strict=False)
 
 
 def get_sample_generator_from_bed(
     bed_path: Path,
     chunk_size: int = 1000,
-) -> Generator[Tuple[np.ndarray, np.ndarray], None, None]:
+) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
     """
     Note the indexing is a bit weird below, as if we only index the first dimension
     (which should be individuals), it actually indexes SNPs. So we need to
@@ -508,12 +506,12 @@ class CleanupIntermediateTaskOutputs(luigi.Task):
         inputs = flatten(self.input())
         if len(inputs) == 0:
             warnings.warn(
-                "Task %r without outputs has no custom complete() method" % self,
+                f"Task {self!r} without outputs has no custom complete() method",
                 stacklevel=2,
             )
             return False
 
-        inputs_finished = all(map(lambda output: output.exists(), inputs))
+        inputs_finished = all(output.exists() for output in inputs)
         interim_deleted = not self.interim_folder.exists()
         return inputs_finished and interim_deleted
 
@@ -602,7 +600,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--autosome_only",
         action="store_true",
-        help="Whether to only use autosomes. " "Only applicable if do_qc is set.",
+        help="Whether to only use autosomes. Only applicable if do_qc is set.",
     )
 
     parser.add_argument(

@@ -1,25 +1,27 @@
 default_language_version:
-  python: python3.8
+  python: python3.11
 repos:
-  - repo: https://github.com/ambv/black
-    rev: 21.5b2
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.10
     hooks:
-      - id: black
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v1.2.3
+    rev: v6.0.0
     hooks:
-      - id: flake8
       - id: check-added-large-files
   - repo: local
     hooks:
-      - id: test
-        name: Run tests
-        entry: tox
+      - id: type-check
+        name: Type check with ty
+        entry: uvx ty check src/plink_pipelines
         language: system
         types: [python]
-        stages: [push]
-      - id: update-reqs
-        name: Update requirements.txt
-        entry: ./misc/update_reqs.sh
+        pass_filenames: false
+      - id: test
+        name: Run tests
+        entry: uv run tox
         language: system
-        stages: [push]
+        types: [python]
+        stages: [manual]
