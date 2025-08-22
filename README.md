@@ -23,7 +23,7 @@ A small program to run pipelines to convert from PLINK [`.bed`, `.bim`, `.fam`] 
 pip install plink-pipelines
 ```
 
-Optionally, install [Plink](https://www.cog-genomics.org/plink/) and make sure it is accessible from your `PATH`. This is needed for some options (e.g., `--do_qc`).
+This tool focuses on the conversion pipeline and assumes your PLINK data has already been QC'd as needed using PLINK directly.
 
 ## Quickstart
 
