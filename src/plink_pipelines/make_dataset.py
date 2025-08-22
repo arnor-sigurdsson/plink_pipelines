@@ -1,13 +1,12 @@
 import argparse
 import logging
 import os
-import subprocess
 import warnings
 from collections.abc import Generator, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from pathlib import Path
-from shutil import copyfile, rmtree, which
+from shutil import copyfile, rmtree
 from typing import Literal
 
 import deeplake
@@ -41,8 +40,6 @@ class RenameOnFailureMixin:
 
 class Config(luigi.Task, RenameOnFailureMixin):
     output_folder = luigi.Parameter()
-    indiv_sample_size = luigi.IntParameter()
-    chr_sample = luigi.Parameter()
 
     @property
     def input_name(self):
@@ -61,10 +58,7 @@ class Config(luigi.Task, RenameOnFailureMixin):
 
     @property
     def _sample_fname_part(self):
-        indiv_part = self.indiv_sample_size if self.indiv_sample_size else "full"
-        snp_part = self.chr_sample if self.chr_sample else "full"
-
-        return f"{indiv_part}_inds" + f"/{snp_part}_chrs"
+        return "full_inds/full_chrs"
 
     def output_target(self, fname):
         fname = Path(fname)
@@ -96,94 +90,7 @@ class ExternalRawData(luigi.ExternalTask):
         return luigi.LocalTarget(str(self.input_name))
 
 
-@requires(ExternalRawData)
-class PlinkExtractAlleles(Config):
-    raw_data_path = luigi.Parameter()
-    extract_snp_file = luigi.Parameter()
-
-    file_name = "interim/0_filtering_files/0_data_extracted/data_plink_extracted.bed"
-
-    def run(self):
-        _validate_plink_exists_in_path()
-        input_path = Path(self.input().path)
-        output_path = Path(self.output().path)
-        ensure_path_exists(output_path)
-
-        plink_input = input_path.parent / input_path.stem
-        plink_output = output_path.parent / output_path.stem
-
-        cmd = [
-            "plink",
-            "--bfile",
-            plink_input,
-            "--extract",
-            self.extract_snp_file,
-            "--make-bed",
-            "--out",
-            plink_output,
-        ]
-
-        subprocess.call(cmd)
-
-
-@inherits(ExternalRawData, PlinkExtractAlleles)
-class PlinkQC(Config):
-    raw_data_path = luigi.Parameter()
-    autosome_only = luigi.BoolParameter()
-    extract_snp_file = luigi.Parameter()
-
-    file_name = "interim/0_filtering_files/1_data_QC/data_plink_QC.bed"
-
-    def requires(self):
-        if self.extract_snp_file:
-            return self.clone(PlinkExtractAlleles)
-        return self.clone(ExternalRawData)
-
-    def run(self):
-        _validate_plink_exists_in_path()
-
-        input_path = Path(self.input().path)
-        output_path = Path(self.output().path)
-        ensure_path_exists(output_path)
-
-        plink_input = input_path.parent / input_path.stem
-        plink_output = output_path.parent / output_path.stem
-        cmd = [
-            "plink",
-            "--bfile",
-            plink_input,
-            "--maf",
-            str(0.001),
-            "--geno",
-            str(0.03),
-            "--mind",
-            str(0.1),
-            "--make-bed",
-            "--out",
-            plink_output,
-        ]
-
-        if self.indiv_sample_size:
-            cmd += ["--thin-indiv-count", str(self.indiv_sample_size)]
-
-        if self.chr_sample:
-            cmd += ["--chr", str(self.chr_sample)]
-
-        if self.autosome_only:
-            cmd += ["--autosome"]
-
-        subprocess.call(cmd)
-
-
-def _validate_plink_exists_in_path():
-    if which("plink") is None:
-        raise RuntimeError(
-            "plink is not installed or is not in the path. "
-            "Please install plink and try again."
-        )
-
-
-@inherits(ExternalRawData, PlinkExtractAlleles, PlinkQC)
+@inherits(ExternalRawData)
 class OneHotSNPs(Config):
     """
     Generates one hot encodings from a individuals x SNPs file.
@@ -192,33 +99,14 @@ class OneHotSNPs(Config):
     output_folder = luigi.Parameter()
     output_format = luigi.Parameter()
     output_name = luigi.Parameter()
-    qc = luigi.BoolParameter()
-    extract_snp_file = luigi.Parameter()
     array_chunk_size = luigi.IntParameter()
     file_name = "processed/encoded_outputs"
 
     def requires(self):
-        """
-        Here we can return any of:
-
-            - [raw.bed]             # no QC, no extract
-            - [extract.bed]         # only extract
-            - [qc.bed]              # only QC
-            - [qc.bed, extract.bed] # both, but qc.bed is the input as it happens after
-        """
-        base = []
-
-        if self.qc:
-            base += [self.clone(PlinkQC)]
-        if self.extract_snp_file:
-            base += [self.clone(PlinkExtractAlleles)]
-
-        if not base:
-            return [self.clone(ExternalRawData)]
-        return base
+        return [self.clone(ExternalRawData)]
 
     def run(self):
-        input_path = Path(self.input()[-1].path)
+        input_path = Path(self.input()[0].path)
         assert input_path.suffix == ".bed"
 
         output_path = Path(self.output().path)
@@ -441,23 +329,10 @@ class FinalizeParsing(luigi.Task):
     output_folder = luigi.Parameter()
     output_format = luigi.Parameter()
     output_name = luigi.Parameter()
-    qc = luigi.BoolParameter()
     array_chunk_size = luigi.IntParameter()
-    extract_snp_file = luigi.Parameter()
 
     def requires(self):
-        base = [self.clone(OneHotSNPs)]
-
-        last_plink_task = [self.clone(ExternalRawData)]
-        if self.extract_snp_file:
-            last_plink_task = [self.clone(PlinkExtractAlleles)]
-        if self.qc:
-            last_plink_task = [self.clone(PlinkQC)]
-
-        base += last_plink_task
-        assert len(base) == 2
-
-        return base
+        return [self.clone(OneHotSNPs), self.clone(ExternalRawData)]
 
     def run(self):
         plink_base_path = Path(self.input()[1].path).with_suffix("")
@@ -469,11 +344,9 @@ class FinalizeParsing(luigi.Task):
         copyfile(snp_path, output_path / "data_final.bim")
 
     def output(self):
-        indiv_sample_size = self.indiv_sample_size or "full"
-        chr_sample = self.chr_sample or "full"
         output_path = Path(
             str(self.output_folder),
-            f"processed/parsed_files/{indiv_sample_size}_indiv/{chr_sample}_snps",
+            "processed/parsed_files/full_indiv/full_snps",
         )
         one_hot_outputs = self.input()
         return [luigi.LocalTarget(str(output_path)), one_hot_outputs]
@@ -484,12 +357,7 @@ class CleanupIntermediateTaskOutputs(luigi.Task):
     raw_data_path = luigi.Parameter()
     output_folder = luigi.Parameter()
     output_format = luigi.Parameter()
-    qc = luigi.BoolParameter()
     array_chunk_size = luigi.IntParameter()
-    indiv_sample_size = luigi.IntParameter()
-    chr_sample = luigi.Parameter()
-    autosome_only = luigi.BoolParameter()
-    extract_snp_file = luigi.Parameter()
 
     @property
     def interim_folder(self):
@@ -562,54 +430,11 @@ def get_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--do_qc",
-        action="store_true",
-        dest="qc",
-        help="Whether to do basic QC on plink data (--maf 0.001, --geno 0.03, "
-        "--mind 0.1). Default: False.",
-    )
-    parser.add_argument(
-        "--no_qc", dest="qc", action="store_false", help="Skip QC on plink data."
-    )
-    parser.set_defaults(qc=False)
-
-    parser.add_argument(
         "--array_chunk_size",
         type=int,
         default=1000,
         help="How many individuals to process at a time. "
         "Useful to avoid running out of memory.",
-    )
-
-    parser.add_argument(
-        "--indiv_sample_size",
-        type=int,
-        default=None,
-        help="How many individuals to randomly sample."
-        " Only applicable if do_qc is set.",
-    )
-
-    parser.add_argument(
-        "--chr_sample",
-        type=str,
-        default="",
-        help="Which chromosomes to sample, follows plink notation."
-        " Only applicable if do_qc is set.",
-    )
-
-    parser.add_argument(
-        "--autosome_only",
-        action="store_true",
-        help="Whether to only use autosomes. Only applicable if do_qc is set.",
-    )
-
-    parser.add_argument(
-        "--extract_snp_file",
-        type=str,
-        default="",
-        help=".bim file to use if generating only the "
-        "intersection between the data and the "
-        "specified .bim file.",
     )
 
     return parser
