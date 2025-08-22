@@ -20,7 +20,7 @@ from luigi.task import flatten
 from luigi.util import inherits, requires
 from numba import prange
 
-from src.plink_pipelines.validation_functions import validate_cl_args
+from plink_pipelines.validation_functions import validate_cl_args
 
 logger = get_logger(name=__name__)
 
