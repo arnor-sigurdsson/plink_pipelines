@@ -9,10 +9,11 @@ from pathlib import Path
 from shutil import copyfile, rmtree
 from typing import Literal
 
-import deeplake
 import luigi
 import numba
 import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 from aislib.misc_utils import ensure_path_exists, get_logger
 from bed_reader import open_bed
 from luigi.task import flatten
@@ -132,7 +133,7 @@ class OneHotSNPs(Config):
 def write_one_hot_outputs(
     id_array_generator: Generator[tuple[str, np.ndarray], None, None],
     output_folder: Path,
-    output_format: Literal["disk", "deeplake"],
+    output_format: Literal["disk", "parquet"],
     batch_size: int,
     output_name: str | None = None,
 ) -> None:
@@ -141,9 +142,9 @@ def write_one_hot_outputs(
             id_array_generator=id_array_generator,
             output_folder=output_folder,
         )
-    elif output_format == "deeplake":
+    elif output_format == "parquet":
         assert output_name is not None
-        _write_one_hot_arrays_to_deeplake_ds(
+        write_one_hot_arrays_to_parquet(
             id_array_generator=id_array_generator,
             output_folder=output_folder,
             output_name=output_name,
@@ -186,74 +187,94 @@ def _write_one_hot_arrays_to_disk(
             _ = list(futures)
 
 
-def _write_one_hot_arrays_to_deeplake_ds(
+def write_one_hot_arrays_to_parquet(
     id_array_generator: Generator[tuple[str, np.ndarray], None, None],
     output_folder: Path,
     output_name: str,
     batch_size: int,
-    commit_frequency: int = 1024,
 ) -> int:
-    ds_path = str(output_folder / output_name)
+    output_folder.mkdir(parents=True, exist_ok=True)
+    parquet_path = output_folder / f"{output_name}.parquet"
 
     try:
         first_id, first_array = next(id_array_generator)
     except StopIteration as e:
         raise ValueError("Generator is empty") from e
 
-    array_shape = list(first_array.shape)
+    schema = pa.schema(
+        [
+            pa.field("sample_id", pa.string()),
+            pa.field("genotype_data", pa.list_(pa.int8())),
+            pa.field("shape", pa.list_(pa.int32())),
+        ]
+    )
 
-    if deeplake.exists(ds_path):
-        ds = deeplake.open(ds_path)
-        columns = {col.name for col in ds.schema.columns}
-        if "ID" not in columns:
-            raise ValueError(
-                f"Existing dataset at {ds_path} missing required 'ID' column"
-            )
-    else:
-        ds = deeplake.create(ds_path)
-        ds.add_column("ID", dtype=deeplake.types.Text())
-        array_schema = deeplake.types.Array(dtype="bool", shape=array_shape)
-        ds.add_column(output_name, dtype=array_schema)
-        ds.commit()
+    batch_data = {
+        "sample_id": [first_id],
+        "genotype_data": [first_array.flatten().tolist()],
+        "shape": [list(first_array.shape)],
+    }
 
-    assert first_array.flags["C_CONTIGUOUS"], "Array not C-contiguous!"
-
-    ds.append({"ID": [first_id], output_name: [first_array]})
-    ds.commit()
+    sample_count = 1
+    writer = None
 
     try:
-        batch = {"ID": [], output_name: []}
-        sample_count = 1
-
         for id_, array in id_array_generator:
-            if list(array.shape) != array_shape:
+            if array.shape != first_array.shape:
                 raise ValueError(
-                    f"Array shape mismatch at ID {id_}. Expected {array_shape}, "
-                    f"got {list(array.shape)}"
+                    f"Array shape mismatch at ID {id_}. Expected "
+                    f"{first_array.shape}, got {array.shape}"
                 )
 
-            assert array.flags["C_CONTIGUOUS"], f"Array for {id_} not C-contiguous!"
-
-            batch["ID"].append(id_)
-            batch[output_name].append(array)
+            batch_data["sample_id"].append(id_)
+            batch_data["genotype_data"].append(array.flatten().tolist())
+            batch_data["shape"].append(list(array.shape))
             sample_count += 1
 
-            if len(batch["ID"]) >= batch_size:
-                ds.append(batch)
-                batch = {"ID": [], output_name: []}
+            if len(batch_data["sample_id"]) >= batch_size:
+                writer = _write_parquet_batch_streaming(
+                    batch_data=batch_data,
+                    schema=schema,
+                    parquet_path=parquet_path,
+                    writer=writer,
+                )
+                batch_data = {"sample_id": [], "genotype_data": [], "shape": []}
 
-            if sample_count % commit_frequency == 0:
-                ds.commit(f"Processed {sample_count} samples")
+        if batch_data["sample_id"]:
+            writer = _write_parquet_batch_streaming(
+                batch_data=batch_data,
+                schema=schema,
+                parquet_path=parquet_path,
+                writer=writer,
+            )
 
-        if batch["ID"]:
-            ds.append(batch)
+    finally:
+        if writer is not None:
+            writer.close()
 
-    except Exception as e:
-        ds.rollback()
-        raise RuntimeError(f"Error processing samples: {str(e)}") from e
-
-    ds.commit(f"Completed processing {sample_count} samples")
+    logger.info(f"Successfully wrote {sample_count} samples to {parquet_path}")
     return sample_count
+
+
+def _write_parquet_batch_streaming(
+    batch_data: dict[str, list],
+    schema: pa.Schema,
+    parquet_path: Path,
+    writer: pq.ParquetWriter | None,
+) -> pq.ParquetWriter:
+    table = pa.table(batch_data, schema=schema)
+
+    if writer is None:
+        writer = pq.ParquetWriter(
+            where=parquet_path,
+            schema=schema,
+            compression="snappy",
+            use_dictionary=True,
+            write_statistics=True,
+        )
+
+    writer.write_table(table)
+    return writer
 
 
 @numba.njit(parallel=True)
@@ -276,13 +297,8 @@ def parallel_one_hot(
 
 def _get_one_hot_encoded_generator(
     chunked_sample_generator: Generator[tuple[Sequence[str], np.ndarray], None, None],
-    output_format: Literal["disk", "deeplake"],
+    output_format: Literal["disk", "parquet"],
 ) -> Generator[tuple[str, np.ndarray], None, None]:
-    """
-    IMPORTANT NOTE ON MEMORY LAYOUT in DeepLake V4:
-    DeepLake assumes C-order (row-major) when storing/loading arrays.
-    We pre-allocate arrays with order='C' to ensure correct memory layout.
-    """
     mapping = np.eye(4, dtype=np.int8)
 
     for id_chunk, array_chunk in chunked_sample_generator:
@@ -301,7 +317,7 @@ def _get_one_hot_encoded_generator(
 
 def get_sample_generator_from_bed(
     bed_path: Path,
-    chunk_size: int = 1000,
+    chunk_size: int = 1024,
 ) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
     """
     Note the indexing is a bit weird below, as if we only index the first dimension
@@ -418,7 +434,7 @@ def get_parser() -> argparse.ArgumentParser:
         "--output_format",
         type=str,
         default="disk",
-        choices=["disk", "deeplake"],
+        choices=["disk", "parquet"],
         help="What format to save the data in.",
     )
 
@@ -426,7 +442,7 @@ def get_parser() -> argparse.ArgumentParser:
         "--output_name",
         type=str,
         default="genotype",
-        help="Name used for deeplake dataset.",
+        help="Name used for parquet dataset.",
     )
 
     parser.add_argument(

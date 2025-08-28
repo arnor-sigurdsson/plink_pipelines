@@ -1,8 +1,8 @@
 import subprocess
 from pathlib import Path
 
-import deeplake
 import numpy as np
+import pyarrow.parquet as pq
 import pytest
 
 
@@ -14,8 +14,10 @@ def _get_test_cl_commands() -> list[str]:
     ]
 
     extras = [
-        " --output_format deeplake",
+        " --output_format parquet",
+        " --output_format disk",
         " --array_chunk_size 100",
+        " --array_chunk_size 100 --output_format parquet",
     ]
 
     for extra in extras:
@@ -51,26 +53,17 @@ def test_run_plink_pipelines(command: str, tmp_path: Path) -> None:
     assert data_final_bim_path.exists()
 
     raw_data_folder = Path("tests/test_data/")
-    if "deeplake" not in command:
+
+    if "parquet" in command:
+        validate_parquet_files(
+            path=encoded_outputs_path,
+            raw_data_folder=raw_data_folder,
+        )
+    else:
         validate_npy_files(
             path=encoded_outputs_path,
             raw_data_folder=raw_data_folder,
         )
-
-    if "deeplake" in command:
-        ds_path = tmp_path / "processed/full_inds/full_chrs/encoded_outputs/genotype"
-        ds = deeplake.open_read_only(str(ds_path))
-
-        fam_file = next(i for i in raw_data_folder.iterdir() if i.suffix == ".fam")
-        bim_file = next(i for i in raw_data_folder.iterdir() if i.suffix == ".bim")
-
-        expected_samples = _lines_in_file(file_path=fam_file)
-        expected_snps = _lines_in_file(file_path=bim_file)
-        expected_shape = (4, expected_snps)
-        for row in ds:
-            assert len(ds) == expected_samples
-            assert row["genotype"].shape == expected_shape
-            assert (row["genotype"].sum(0) == 1).all()
 
 
 def _lines_in_file(file_path: Path) -> int:
@@ -96,3 +89,47 @@ def validate_npy_files(path: Path, raw_data_folder: Path) -> None:
             assert data.dtype == np.int8
 
     assert file_count == expected_samples
+
+
+def validate_parquet_files(path: Path, raw_data_folder: Path) -> None:
+    parquet_file = path / "genotype.parquet"
+    assert parquet_file.exists(), f"Expected parquet file not found: {parquet_file}"
+
+    fam_file = next(i for i in raw_data_folder.iterdir() if i.suffix == ".fam")
+    bim_file = next(i for i in raw_data_folder.iterdir() if i.suffix == ".bim")
+
+    expected_samples = _lines_in_file(file_path=fam_file)
+    expected_snps = _lines_in_file(file_path=bim_file)
+    expected_shape = (4, expected_snps)
+
+    table = pq.read_table(parquet_file)
+    df = table.to_pandas()
+
+    assert len(df) == expected_samples, (
+        f"Expected {expected_samples} rows, got {len(df)}"
+    )
+
+    expected_columns = {"sample_id", "genotype_data", "shape"}
+    assert set(df.columns) == expected_columns, (
+        f"Expected columns {expected_columns}, got {df.columns}"
+    )
+
+    for idx, row in df.iterrows():
+        assert isinstance(row["sample_id"], str), (
+            f"Row {idx}: sample_id should be string"
+        )
+
+        shape = row["shape"]
+        assert list(shape) == list(expected_shape), (
+            f"Row {idx}: expected shape {expected_shape}, got {shape}"
+        )
+
+        genotype_data = np.array(row["genotype_data"], dtype=np.int8).reshape(
+            expected_shape
+        )
+
+        assert (genotype_data.sum(axis=0) == 1).all(), (
+            f"Row {idx}: invalid one-hot encoding"
+        )
+
+        assert genotype_data.dtype == np.int8, f"Row {idx}: expected int8 dtype"
