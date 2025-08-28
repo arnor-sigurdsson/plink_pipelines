@@ -1,6 +1,10 @@
 # PLINK Pipelines
 
-<p align="center">
+<p style="text-align:center;">
+  <img src="docs/_static/plink_pipelines_logo.svg" alt="Plink Pipelines Logo" width="250">
+</p>
+
+<p style="text-align:center;">
     <a href="LICENSE" alt="License">
         <img src="https://img.shields.io/badge/License-APGL-5B2D5B.svg" /></a>
   
@@ -13,7 +17,6 @@
   <a href="https://codecov.io/gh/arnor-sigurdsson/plink_pipelines" alt="Coverage">
         <img src="https://codecov.io/gh/arnor-sigurdsson/plink_pipelines/branch/master/graph/badge.svg" /></a>       
 </p>
-
 
 A small program to run pipelines to convert from PLINK [`.bed`, `.bim`, `.fam`] genotype filesets to one-hot encoded NumPy arrays on disk, e.g. for usage with [EIR](https://github.com/arnor-sigurdsson/EIR) or your own workflows.
 
