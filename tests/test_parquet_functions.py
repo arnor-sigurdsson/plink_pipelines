@@ -3,8 +3,8 @@ import pyarrow.parquet as pq
 import pytest
 
 from plink_pipelines.make_dataset import (
-    write_one_hot_arrays_to_parquet,
     _write_parquet_batch_streaming,
+    write_one_hot_arrays_to_parquet,
     write_one_hot_outputs,
 )
 
