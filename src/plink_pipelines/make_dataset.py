@@ -244,7 +244,7 @@ def write_one_hot_arrays_to_parquet(
             writer = _write_parquet_batch_streaming(
                 batch_data=batch_data,
                 schema=schema,
-                parquet_path=-parquet_path,
+                parquet_path=parquet_path,
                 writer=writer,
             )
 
