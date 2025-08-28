@@ -1,10 +1,10 @@
 # PLINK Pipelines
 
-<p style="text-align:center;">
-  <img src="docs/_static/plink_pipelines_logo.svg" alt="Plink Pipelines Logo" width="250">
+<p align="center">
+  <img src="docs/_static/plink_pipelines_logo.svg" alt="Plink Pipelines Logo" width="250" />
 </p>
 
-<p style="text-align:center;">
+<p align="center">
     <a href="LICENSE" alt="License">
         <img src="https://img.shields.io/badge/License-APGL-5B2D5B.svg" /></a>
   
