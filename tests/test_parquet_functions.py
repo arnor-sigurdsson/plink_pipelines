@@ -114,10 +114,20 @@ def test_write_parquet_batch_streaming(tmp_path):
 
     parquet_path = tmp_path / "test_streaming.parquet"
 
-    writer = _write_parquet_batch_streaming(batch_data, schema, parquet_path, None)
+    writer = _write_parquet_batch_streaming(
+        batch_data=batch_data,
+        schema=schema,
+        parquet_path=parquet_path,
+        writer=None,
+    )
     assert writer is not None
 
-    writer = _write_parquet_batch_streaming(batch_data, schema, parquet_path, writer)
+    writer = _write_parquet_batch_streaming(
+        batch_data=batch_data,
+        schema=schema,
+        parquet_path=parquet_path,
+        writer=writer,
+    )
     writer.close()
 
     assert parquet_path.exists()

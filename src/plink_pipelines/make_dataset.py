@@ -233,13 +233,19 @@ def write_one_hot_arrays_to_parquet(
 
             if len(batch_data["sample_id"]) >= batch_size:
                 writer = _write_parquet_batch_streaming(
-                    batch_data, schema, parquet_path, writer
+                    batch_data=batch_data,
+                    schema=schema,
+                    parquet_path=parquet_path,
+                    writer=writer,
                 )
                 batch_data = {"sample_id": [], "genotype_data": [], "shape": []}
 
         if batch_data["sample_id"]:
             writer = _write_parquet_batch_streaming(
-                batch_data, schema, parquet_path, writer
+                batch_data=batch_data,
+                schema=schema,
+                parquet_path=-parquet_path,
+                writer=writer,
             )
 
     finally:
@@ -311,7 +317,7 @@ def _get_one_hot_encoded_generator(
 
 def get_sample_generator_from_bed(
     bed_path: Path,
-    chunk_size: int = 1000,
+    chunk_size: int = 1024,
 ) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
     """
     Note the indexing is a bit weird below, as if we only index the first dimension
