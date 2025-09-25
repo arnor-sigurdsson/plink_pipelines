@@ -1,9 +1,13 @@
-import subprocess
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
+import luigi
 import numpy as np
 import pyarrow.parquet as pq
 import pytest
+
+from plink_pipelines.make_dataset import RunAll
 
 
 def _get_test_cl_commands() -> list[str]:
@@ -28,11 +32,19 @@ def _get_test_cl_commands() -> list[str]:
 
 
 @pytest.mark.parametrize("command", _get_test_cl_commands())
-def test_run_plink_pipelines(command: str, tmp_path: Path) -> None:
-    command_split = command.split()
+def test_run_plink_pipelines_in_process(command: str, tmp_path: Path) -> None:
+    luigi.task.Task.clear_instance_cache()
+
+    command_split = command.split()[1:]  # Remove 'plink_pipelines' from start
     command_split.extend(["--output_folder", str(tmp_path)])
 
-    subprocess.run(command_split, check=True)
+    with patch.object(sys, "argv", ["plink_pipelines"] + command_split):
+        from plink_pipelines.make_dataset import get_cl_args
+
+        cl_args = get_cl_args()
+
+    success = luigi.build([RunAll(vars(cl_args))], local_scheduler=True)
+    assert success, "Luigi pipeline failed"
 
     processed_path = tmp_path / "processed"
     full_inds_path = processed_path / "full_inds"
