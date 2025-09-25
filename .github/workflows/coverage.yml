@@ -11,6 +11,7 @@ jobs:
         with:
           python-version: '3.12'
           architecture: x64
+      - uses: astral-sh/setup-uv@v5
       - name: Set up environment
         run: |
           mkdir -p ~/.local/bin
@@ -27,8 +28,7 @@ jobs:
       - name: Run tests with Python
         run: |
           pip install tox==4.23.2
-          pip install poetry==1.8.3
-          tox -e py
+          uv run tox -e py
       - name: Generate report
         uses: codecov/codecov-action@v4
         with:
