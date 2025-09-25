@@ -13,7 +13,6 @@ requires-python = ">=3.11"
 dependencies = [
     "luigi>=3.5.2",
     "aislib>=0.3.0",
-    "bed-reader>=1.0.6",
     "numpy>=2.3.0",
     "numba>=0.62.0",
     "pyarrow>=18.0.0",
