@@ -89,7 +89,7 @@ def test_get_sample_generator_from_bed(mock_geno_reader_class):
     mock_reader.__iter__ = Mock(return_value=iter([mock_item1, mock_item2]))
 
     bed_path = Path("test_data.bed")
-    generator = get_sample_generator_from_bed(bed_path=bed_path, chunk_size=2)
+    generator = get_sample_generator_from_bed(bed_path=bed_path, read_chunk_size=2)
 
     results = list(generator)
 
@@ -117,7 +117,7 @@ def test_get_sample_generator_from_bed_partial_chunk(mock_geno_reader_class):
     mock_reader.__iter__ = Mock(return_value=iter([mock_item]))
 
     bed_path = Path("test_data.bed")
-    generator = get_sample_generator_from_bed(bed_path=bed_path, chunk_size=5)
+    generator = get_sample_generator_from_bed(bed_path=bed_path, read_chunk_size=5)
 
     results = list(generator)
     assert len(results) == 1

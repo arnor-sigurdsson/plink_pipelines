@@ -83,7 +83,7 @@ class ExternalRawData(luigi.ExternalTask):
         ]
         if len(bed_files) != 1:
             raise ValueError(
-                f"Expected one .bed file in {self.raw_data_path}, butfound {bed_files}."
+                f"Expected one .bed file in {self.raw_data_path}, but found {bed_files}."
             )
         return str(bed_files[0])
 
@@ -474,7 +474,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--process_chunk_size",
         type=int,
-        default=1000,
+        default=1024,
         help="How many individuals to process for one-hot encoding at a time. "
         "Smaller values reduce memory usage. Must be <= read_chunk_size.",
     )

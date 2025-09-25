@@ -72,7 +72,8 @@ class TestRunAll:
             "output_folder": "test_output",
             "output_format": "disk",
             "output_name": "test",
-            "array_chunk_size": 100,
+            "read_chunk_size": 100,
+            "process_chunk_size": 50,
         }
 
         task = RunAll(task_params)

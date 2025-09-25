@@ -15,7 +15,8 @@ def test_get_parser():
     assert args.output_folder == "data"
     assert args.output_format == "disk"
     assert args.output_name == "genotype"
-    assert args.array_chunk_size == 1000
+    assert args.read_chunk_size == 8192
+    assert args.process_chunk_size == 1024
 
     args = parser.parse_args(
         [
@@ -27,7 +28,9 @@ def test_get_parser():
             "parquet",
             "--output_name",
             "test_genotype",
-            "--array_chunk_size",
+            "--read_chunk_size",
+            "2000",
+            "--process_chunk_size",
             "500",
         ]
     )
@@ -36,7 +39,8 @@ def test_get_parser():
     assert args.output_folder == "output"
     assert args.output_format == "parquet"
     assert args.output_name == "test_genotype"
-    assert args.array_chunk_size == 500
+    assert args.read_chunk_size == 2000
+    assert args.process_chunk_size == 500
 
 
 def test_get_parser_invalid_format():
@@ -66,7 +70,8 @@ def test_main(mock_get_cl_args, mock_luigi_build):
         output_folder="output",
         output_format="disk",
         output_name="genotype",
-        array_chunk_size=1000,
+        read_chunk_size=8192,
+        process_chunk_size=1024,
     )
     mock_get_cl_args.return_value = mock_args
 
@@ -85,7 +90,8 @@ def test_validate_cl_args():
         output_folder="output",
         output_format="disk",
         output_name="genotype",
-        array_chunk_size=1000,
+        read_chunk_size=8192,
+        process_chunk_size=1024,
     )
 
     validate_cl_args(args)
