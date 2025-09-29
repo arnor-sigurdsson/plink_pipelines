@@ -15,7 +15,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 from aislib.misc_utils import ensure_path_exists, get_logger
-from bed_reader import open_bed
+from geno_reader import GenoReader  # type: ignore[unresolved-import]
 from luigi.task import flatten
 from luigi.util import inherits, requires
 from numba import prange
@@ -319,25 +319,21 @@ def get_sample_generator_from_bed(
     bed_path: Path,
     chunk_size: int = 1024,
 ) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
-    """
-    Note the indexing is a bit weird below, as if we only index the first dimension
-    (which should be individuals), it actually indexes SNPs. So we need to
-    explicitly index both dimensions.
-    """
-    with open_bed(location=bed_path) as bed_handle:
-        n_samples = bed_handle.iid_count
+    plink_suffix = bed_path.with_suffix("")
 
-        for index in range(0, n_samples, chunk_size):
-            samples_idx_start = index
-            samples_idx_end = index + chunk_size
-            ids = bed_handle.iid[samples_idx_start:samples_idx_end]
-            arrays = bed_handle.read(
-                index=np.s_[samples_idx_start:samples_idx_end, :],
-                dtype=np.int8,
-            )
-            arrays[arrays == -127] = 3  # NA is encoded as -127
-            yield ids, arrays
-            logger.info("Processed %s samples.", index + chunk_size)
+    reader = GenoReader(plink_suffix=str(plink_suffix), chunk_size=chunk_size)
+    ids = []
+    arrays = []
+    for item in reader:
+        ids.append(item.sample_id)
+        arrays.append(item.genotypes_as_numpy())
+        if len(ids) >= chunk_size:
+            yield np.array(ids), np.array(arrays, dtype=np.int8)
+            ids = []
+            arrays = []
+
+    if ids:
+        yield np.array(ids), np.array(arrays, dtype=np.int8)
 
 
 @inherits(OneHotSNPs)
