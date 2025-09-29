@@ -56,3 +56,4 @@ known-first-party = ["plink_pipelines"]
 
 [tool.deptry]
 ignore = ["DEP003"]
+exclude = ["misc"]
