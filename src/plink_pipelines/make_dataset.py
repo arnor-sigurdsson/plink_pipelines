@@ -83,7 +83,8 @@ class ExternalRawData(luigi.ExternalTask):
         ]
         if len(bed_files) != 1:
             raise ValueError(
-                f"Expected one .bed file in {self.raw_data_path}, butfound {bed_files}."
+                f"Expected one .bed file in {self.raw_data_path}, "
+                f"but found {bed_files}."
             )
         return str(bed_files[0])
 
@@ -100,7 +101,8 @@ class OneHotSNPs(Config):
     output_folder = luigi.Parameter()
     output_format = luigi.Parameter()
     output_name = luigi.Parameter()
-    array_chunk_size = luigi.IntParameter()
+    read_chunk_size = luigi.IntParameter()
+    process_chunk_size = luigi.IntParameter()
     file_name = "processed/encoded_outputs"
 
     def requires(self):
@@ -113,11 +115,14 @@ class OneHotSNPs(Config):
         output_path = Path(self.output().path)
         ensure_path_exists(output_path, is_folder=True)
 
-        chunk_generator = get_sample_generator_from_bed(
-            bed_path=input_path, chunk_size=int(self.array_chunk_size)
+        read_generator = get_sample_generator_from_bed(
+            bed_path=input_path, read_chunk_size=int(self.read_chunk_size)
+        )
+        process_generator = rechunk_generator(
+            chunk_generator=read_generator, new_chunk_size=int(self.process_chunk_size)
         )
         sample_id_one_hot_array_generator = _get_one_hot_encoded_generator(
-            chunked_sample_generator=chunk_generator,
+            chunked_sample_generator=process_generator,
             output_format=self.output_format,
         )
 
@@ -126,7 +131,7 @@ class OneHotSNPs(Config):
             output_folder=output_path,
             output_format=self.output_format,
             output_name=str(self.output_name),
-            batch_size=int(self.array_chunk_size),
+            batch_size=int(self.process_chunk_size),
         )
 
 
@@ -315,19 +320,35 @@ def _get_one_hot_encoded_generator(
         yield from zip(id_chunk, one_hot_final, strict=False)
 
 
+def rechunk_generator(
+    chunk_generator: Generator[tuple[Sequence[str], np.ndarray], None, None],
+    new_chunk_size: int,
+) -> Generator[tuple[Sequence[str], np.ndarray], None, None]:
+    for id_chunk, array_chunk in chunk_generator:
+        num_samples_in_chunk = array_chunk.shape[0]
+        for i in range(0, num_samples_in_chunk, new_chunk_size):
+            end_index = min(i + new_chunk_size, num_samples_in_chunk)
+
+            id_sub_chunk = id_chunk[i:end_index]
+            array_sub_chunk = array_chunk[i:end_index]
+
+            if array_sub_chunk.shape[0] > 0:
+                yield id_sub_chunk, array_sub_chunk
+
+
 def get_sample_generator_from_bed(
     bed_path: Path,
-    chunk_size: int = 1024,
+    read_chunk_size: int = 1024,
 ) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
     plink_suffix = bed_path.with_suffix("")
 
-    reader = GenoReader(plink_suffix=str(plink_suffix), chunk_size=chunk_size)
+    reader = GenoReader(plink_suffix=str(plink_suffix), chunk_size=read_chunk_size)
     ids = []
     arrays = []
     for item in reader:
         ids.append(item.sample_id)
         arrays.append(item.genotypes_as_numpy())
-        if len(ids) >= chunk_size:
+        if len(ids) >= read_chunk_size:
             yield np.array(ids), np.array(arrays, dtype=np.int8)
             ids = []
             arrays = []
@@ -341,7 +362,8 @@ class FinalizeParsing(luigi.Task):
     output_folder = luigi.Parameter()
     output_format = luigi.Parameter()
     output_name = luigi.Parameter()
-    array_chunk_size = luigi.IntParameter()
+    read_chunk_size = luigi.IntParameter()
+    process_chunk_size = luigi.IntParameter()
 
     def requires(self):
         return [self.clone(OneHotSNPs), self.clone(ExternalRawData)]
@@ -369,7 +391,8 @@ class CleanupIntermediateTaskOutputs(luigi.Task):
     raw_data_path = luigi.Parameter()
     output_folder = luigi.Parameter()
     output_format = luigi.Parameter()
-    array_chunk_size = luigi.IntParameter()
+    read_chunk_size = luigi.IntParameter()
+    process_chunk_size = luigi.IntParameter()
 
     @property
     def interim_folder(self):
@@ -442,11 +465,19 @@ def get_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--array_chunk_size",
+        "--read_chunk_size",
         type=int,
-        default=1000,
-        help="How many individuals to process at a time. "
-        "Useful to avoid running out of memory.",
+        default=8192,
+        help="How many individuals to read from disk at a time. "
+        "Larger values improve I/O efficiency.",
+    )
+
+    parser.add_argument(
+        "--process_chunk_size",
+        type=int,
+        default=1024,
+        help="How many individuals to process for one-hot encoding at a time. "
+        "Smaller values reduce memory usage. Must be <= read_chunk_size.",
     )
 
     return parser

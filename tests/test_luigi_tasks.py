@@ -26,11 +26,9 @@ class TestRenameOnFailureMixin:
         with patch.object(luigi.Task, "on_failure") as mock_super_on_failure:
             task.on_failure(exception)
 
-        # Check that file was renamed
         failed_file = tmp_path / "test_file_FAILED.txt"
         assert failed_file.exists()
         assert not target_file.exists()
-        # Luigi.Task.on_failure is called with (self, exception)
         mock_super_on_failure.assert_called_once_with(task, exception)
 
     def test_on_failure_with_nonexistent_file(self, tmp_path):
@@ -47,7 +45,6 @@ class TestRenameOnFailureMixin:
         mock_super_on_failure.assert_called_once_with(task, exception)
 
 
-# Simple tests for basic Config functionality
 class TestConfig:
     def test_file_name_not_implemented(self):
         config = Config(output_folder="test")
@@ -75,11 +72,12 @@ class TestRunAll:
             "output_folder": "test_output",
             "output_format": "disk",
             "output_name": "test",
-            "array_chunk_size": 100,
+            "read_chunk_size": 100,
+            "process_chunk_size": 50,
         }
 
         task = RunAll(task_params)
-        requirements = list(task.requires())  # Convert generator to list
+        requirements = list(task.requires())
 
         assert len(requirements) == 1
         assert isinstance(requirements[0], CleanupIntermediateTaskOutputs)

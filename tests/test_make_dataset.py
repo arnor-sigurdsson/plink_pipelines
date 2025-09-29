@@ -7,7 +7,7 @@ import numpy as np
 import pyarrow.parquet as pq
 import pytest
 
-from plink_pipelines.make_dataset import RunAll
+from plink_pipelines.make_dataset import RunAll, rechunk_generator
 
 
 def _get_test_cl_commands() -> list[str]:
@@ -20,8 +20,10 @@ def _get_test_cl_commands() -> list[str]:
     extras = [
         " --output_format parquet",
         " --output_format disk",
-        " --array_chunk_size 100",
-        " --array_chunk_size 100 --output_format parquet",
+        " --read_chunk_size 200 --process_chunk_size 100",
+        " --read_chunk_size 200 --process_chunk_size 100 --output_format parquet",
+        " --process_chunk_size 50",
+        " --read_chunk_size 1000 --process_chunk_size 500",
     ]
 
     for extra in extras:
@@ -35,7 +37,7 @@ def _get_test_cl_commands() -> list[str]:
 def test_run_plink_pipelines_in_process(command: str, tmp_path: Path) -> None:
     luigi.task.Task.clear_instance_cache()
 
-    command_split = command.split()[1:]  # Remove 'plink_pipelines' from start
+    command_split = command.split()[1:]
     command_split.extend(["--output_folder", str(tmp_path)])
 
     with patch.object(sys, "argv", ["plink_pipelines"] + command_split):
@@ -145,3 +147,109 @@ def validate_parquet_files(path: Path, raw_data_folder: Path) -> None:
         )
 
         assert genotype_data.dtype == np.int8, f"Row {idx}: expected int8 dtype"
+
+
+def test_rechunk_generator_basic():
+    def mock_chunk_generator():
+        ids = [f"sample_{i}" for i in range(10)]
+        array = np.arange(10 * 5).reshape(10, 5).astype(np.int8)
+        yield ids, array
+
+    rechunked = list(rechunk_generator(mock_chunk_generator(), new_chunk_size=3))
+
+    assert len(rechunked) == 4
+
+    chunk1_ids, chunk1_array = rechunked[0]
+    assert len(chunk1_ids) == 3
+    assert chunk1_array.shape == (3, 5)
+    assert chunk1_ids[0] == "sample_0"
+    assert chunk1_ids[2] == "sample_2"
+
+    chunk2_ids, chunk2_array = rechunked[1]
+    assert len(chunk2_ids) == 3
+    assert chunk2_array.shape == (3, 5)
+    assert chunk2_ids[0] == "sample_3"
+
+    chunk4_ids, chunk4_array = rechunked[3]
+    assert len(chunk4_ids) == 1
+    assert chunk4_array.shape == (1, 5)
+    assert chunk4_ids[0] == "sample_9"
+
+
+def test_rechunk_generator_exact_multiple():
+    def mock_chunk_generator():
+        ids = [f"sample_{i}" for i in range(6)]
+        array = np.arange(6 * 3).reshape(6, 3).astype(np.int8)
+        yield ids, array
+
+    rechunked = list(rechunk_generator(mock_chunk_generator(), new_chunk_size=3))
+
+    assert len(rechunked) == 2
+
+    chunk1_ids, chunk1_array = rechunked[0]
+    assert len(chunk1_ids) == 3
+    assert chunk1_array.shape == (3, 3)
+
+    chunk2_ids, chunk2_array = rechunked[1]
+    assert len(chunk2_ids) == 3
+    assert chunk2_array.shape == (3, 3)
+
+
+def test_rechunk_generator_larger_chunk_size():
+    def mock_chunk_generator():
+        ids = [f"sample_{i}" for i in range(3)]
+        array = np.arange(3 * 4).reshape(3, 4).astype(np.int8)
+        yield ids, array
+
+    rechunked = list(rechunk_generator(mock_chunk_generator(), new_chunk_size=5))
+
+    assert len(rechunked) == 1
+
+    chunk1_ids, chunk1_array = rechunked[0]
+    assert len(chunk1_ids) == 3
+    assert chunk1_array.shape == (3, 4)
+
+
+def test_rechunk_generator_empty_input():
+    def empty_generator():
+        return
+        yield
+
+    rechunked = list(rechunk_generator(empty_generator(), new_chunk_size=5))
+    assert len(rechunked) == 0
+
+
+def test_rechunk_generator_multiple_input_chunks():
+    def multiple_chunks_generator():
+        for chunk_idx in range(3):
+            ids = [f"chunk{chunk_idx}_sample_{i}" for i in range(4)]
+            array = np.full((4, 2), chunk_idx, dtype=np.int8)
+            yield ids, array
+
+    rechunked = list(rechunk_generator(multiple_chunks_generator(), new_chunk_size=3))
+
+    assert len(rechunked) == 6
+
+    chunk1_ids, chunk1_array = rechunked[0]
+    assert len(chunk1_ids) == 3
+    assert chunk1_array.shape == (3, 2)
+    assert (chunk1_array == 0).all()
+    assert chunk1_ids[0] == "chunk0_sample_0"
+
+    chunk2_ids, chunk2_array = rechunked[1]
+    assert len(chunk2_ids) == 1
+    assert chunk2_array.shape == (1, 2)
+    assert (chunk2_array == 0).all()
+    assert chunk2_ids[0] == "chunk0_sample_3"
+
+    chunk3_ids, chunk3_array = rechunked[2]
+    assert len(chunk3_ids) == 3
+    assert chunk3_array.shape == (3, 2)
+    assert (chunk3_array == 1).all()
+    assert chunk3_ids[0] == "chunk1_sample_0"
+
+    chunk6_ids, chunk6_array = rechunked[5]
+    assert len(chunk6_ids) == 1
+    assert chunk6_array.shape == (1, 2)
+    assert (chunk6_array == 2).all()
+    assert chunk6_ids[0] == "chunk2_sample_3"
