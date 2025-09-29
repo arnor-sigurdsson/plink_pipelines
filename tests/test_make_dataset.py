@@ -7,8 +7,7 @@ import numpy as np
 import pyarrow.parquet as pq
 import pytest
 
-from plink_pipelines.make_dataset import rechunk_generator
-from plink_pipelines.make_dataset import RunAll
+from plink_pipelines.make_dataset import RunAll, rechunk_generator
 
 
 def _get_test_cl_commands() -> list[str]:
