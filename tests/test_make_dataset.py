@@ -24,7 +24,7 @@ def _get_test_cl_commands() -> list[str]:
         " --read_chunk_size 200 --process_chunk_size 100",
         " --read_chunk_size 200 --process_chunk_size 100 --output_format parquet",
         " --process_chunk_size 50",
-        " --read_chunk_size 1000",
+        " --read_chunk_size 1000 --process_chunk_size 500",
     ]
 
     for extra in extras:
