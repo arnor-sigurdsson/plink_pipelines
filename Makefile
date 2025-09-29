@@ -55,6 +55,8 @@ build: ## Build the package
 
 check-all: lint format-check type-check test ## Run all checks (lint, format, type-check, test)
 
+fix-and-check: lint-fix format type-check ## Fix issues and run checks without tests (lint, format, type-check)
+
 fix-and-check-all: lint-fix format type-check test ## Fix issues and run all checks (lint, format, type-check, test)
 
 ci: check-all ## Run all CI checks locally

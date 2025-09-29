@@ -1,21 +1,15 @@
 default_language_version:
   python: python3.11
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.10
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: check-added-large-files
   - repo: local
     hooks:
-      - id: type-check
-        name: Type check with ty
-        entry: uvx ty check src/plink_pipelines
+      - id: fix-and-check
+        name: Fix and check (lint, format, type-check)
+        entry: make fix-and-check
         language: system
         types: [python]
         pass_filenames: false
