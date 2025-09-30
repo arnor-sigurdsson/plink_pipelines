@@ -305,6 +305,7 @@ def _get_one_hot_encoded_generator(
     output_format: Literal["disk", "parquet"],
 ) -> Generator[tuple[str, np.ndarray], None, None]:
     mapping = np.eye(4, dtype=np.int8)
+    total_samples = 0
 
     for id_chunk, array_chunk in chunked_sample_generator:
         n_samples, n_features = array_chunk.shape
@@ -316,6 +317,9 @@ def _get_one_hot_encoded_generator(
         assert (one_hot_final[0].sum(0) == 1).all()
         assert one_hot_final.dtype == np.int8
         assert one_hot_final.flags["C_CONTIGUOUS"], "Array not C-contiguous!"
+
+        total_samples += n_samples
+        logger.info("Processed %s samples.", total_samples)
 
         yield from zip(id_chunk, one_hot_final, strict=False)
 
