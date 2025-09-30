@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "plink_pipelines"
-version = "0.8.2"
+version = "0.8.3"
 description = "PLINK format genomics data processing pipelines"
 authors = [
     {name = "Arnor Sigurdsson", email = "arnor-sigurdsson@users.noreply.github.com"}
