@@ -26,34 +26,55 @@ def test_save_array(tmp_path):
     np.testing.assert_array_equal(loaded_array, array)
 
 
-def test_parallel_one_hot():
+def test_parallel_one_hot_4_channels():
     array_chunk = np.array([[0, 1, 2, 3], [1, 2, 3, 0]], dtype=np.int8)
     mapping = np.eye(4, dtype=np.int8)
     output = np.zeros((2, 4, 4), dtype=np.int8)
 
-    parallel_one_hot(array_chunk, mapping, output)
+    parallel_one_hot(array_chunk, mapping, output, 4)
 
-    # Check first sample encodings
-    assert output[0, 0, 0] == 1  # First sample, first SNP, genotype 0
-    assert output[0, 1, 1] == 1  # First sample, second SNP, genotype 1
-    assert output[0, 2, 2] == 1  # First sample, third SNP, genotype 2
-    assert output[0, 3, 3] == 1  # First sample, fourth SNP, genotype 3
+    assert output[0, 0, 0] == 1
+    assert output[0, 1, 1] == 1
+    assert output[0, 2, 2] == 1
+    assert output[0, 3, 3] == 1
 
-    # Check second sample encodings
-    assert output[1, 1, 0] == 1  # Second sample, first SNP, genotype 1
-    assert output[1, 2, 1] == 1  # Second sample, second SNP, genotype 2
-    assert output[1, 3, 2] == 1  # Second sample, third SNP, genotype 3
-    assert output[1, 0, 3] == 1  # Second sample, fourth SNP, genotype 0
+    assert output[1, 1, 0] == 1
+    assert output[1, 2, 1] == 1
+    assert output[1, 3, 2] == 1
+    assert output[1, 0, 3] == 1
 
 
-def test_get_one_hot_encoded_generator():
+def test_parallel_one_hot_3_channels():
+    array_chunk = np.array([[0, 1, 2, 3], [1, 2, 3, 0]], dtype=np.int8)
+    mapping = np.zeros((4, 3), dtype=np.int8)
+    mapping[0, 0] = 1
+    mapping[1, 1] = 1
+    mapping[2, 2] = 1
+    output = np.zeros((2, 3, 4), dtype=np.int8)
+
+    parallel_one_hot(array_chunk, mapping, output, 3)
+
+    assert output[0, 0, 0] == 1
+    assert output[0, 1, 1] == 1
+    assert output[0, 2, 2] == 1
+    assert output[0, :, 3].sum() == 0
+
+    assert output[1, 1, 0] == 1
+    assert output[1, 2, 1] == 1
+    assert output[1, :, 2].sum() == 0
+    assert output[1, 0, 3] == 1
+
+
+def test_get_one_hot_encoded_generator_encode_missing():
     def chunked_generator():
         ids = np.array(["sample_1", "sample_2"])
         array = np.array([[0, 1], [2, 3]], dtype=np.int8)
         yield ids, array
 
     generator = _get_one_hot_encoded_generator(
-        chunked_sample_generator=chunked_generator(), output_format="disk"
+        chunked_sample_generator=chunked_generator(),
+        output_format="disk",
+        encode_missing=True,
     )
 
     results = list(generator)
@@ -71,6 +92,35 @@ def test_get_one_hot_encoded_generator():
     assert one_hot_array.shape == (4, 2)
     assert one_hot_array.dtype == np.int8
     assert (one_hot_array.sum(axis=0) == 1).all()
+
+
+def test_get_one_hot_encoded_generator_no_encode_missing():
+    def chunked_generator():
+        ids = np.array(["sample_1", "sample_2"])
+        array = np.array([[0, 1], [2, 3]], dtype=np.int8)
+        yield ids, array
+
+    generator = _get_one_hot_encoded_generator(
+        chunked_sample_generator=chunked_generator(),
+        output_format="disk",
+        encode_missing=False,
+    )
+
+    results = list(generator)
+    assert len(results) == 2
+
+    sample_id, one_hot_array = results[0]
+    assert sample_id == "sample_1"
+    assert one_hot_array.shape == (3, 2)
+    assert one_hot_array.dtype == np.int8
+    assert one_hot_array[0, 0] == 1
+    assert one_hot_array[1, 1] == 1
+
+    sample_id, one_hot_array = results[1]
+    assert sample_id == "sample_2"
+    assert one_hot_array.shape == (3, 2)
+    assert one_hot_array[2, 0] == 1
+    assert one_hot_array[:, 1].sum() == 0
 
 
 @patch("plink_pipelines.make_dataset.GenoReader")

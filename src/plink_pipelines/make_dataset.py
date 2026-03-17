@@ -103,6 +103,7 @@ class OneHotSNPs(Config):
     output_name = luigi.Parameter()
     read_chunk_size = luigi.IntParameter()
     process_chunk_size = luigi.IntParameter()
+    encode_missing = luigi.BoolParameter(default=False)
     file_name = "processed/encoded_outputs"
 
     def requires(self):
@@ -124,6 +125,7 @@ class OneHotSNPs(Config):
         sample_id_one_hot_array_generator = _get_one_hot_encoded_generator(
             chunked_sample_generator=process_generator,
             output_format=self.output_format,
+            encode_missing=bool(self.encode_missing),
         )
 
         write_one_hot_outputs(
@@ -287,34 +289,52 @@ def parallel_one_hot(
     array_chunk: np.ndarray,
     mapping: np.ndarray,
     output: np.ndarray,
+    n_channels: int,
 ) -> None:
-    """
-    Note the inner range(4) loop is seems to be faster than e.g. using
-    output[i, j] = mapping[array_chunk[i, j]].
-    """
     n_samples, n_features = array_chunk.shape
 
     for i in prange(n_samples):  # type: ignore[not-iterable]
         for j in range(n_features):
-            for k in range(4):
+            for k in range(n_channels):
                 output[i, k, j] = mapping[array_chunk[i, j], k]
+
+
+def _build_one_hot_mapping(encode_missing: bool) -> np.ndarray:
+    if encode_missing:
+        return np.eye(4, dtype=np.int8)
+
+    mapping = np.zeros((4, 3), dtype=np.int8)
+    mapping[0, 0] = 1
+    mapping[1, 1] = 1
+    mapping[2, 2] = 1
+    return mapping
 
 
 def _get_one_hot_encoded_generator(
     chunked_sample_generator: Generator[tuple[Sequence[str], np.ndarray], None, None],
     output_format: Literal["disk", "parquet"],
+    encode_missing: bool = False,
 ) -> Generator[tuple[str, np.ndarray], None, None]:
-    mapping = np.eye(4, dtype=np.int8)
+    mapping = _build_one_hot_mapping(encode_missing=encode_missing)
+    n_channels = mapping.shape[1]
     total_samples = 0
 
     for id_chunk, array_chunk in chunked_sample_generator:
         n_samples, n_features = array_chunk.shape
 
-        one_hot_final = np.empty((n_samples, 4, n_features), dtype=np.int8, order="C")
+        one_hot_final = np.empty(
+            (n_samples, n_channels, n_features), dtype=np.int8, order="C"
+        )
 
-        parallel_one_hot(array_chunk, mapping, one_hot_final)
+        parallel_one_hot(
+            array_chunk=array_chunk,
+            mapping=mapping,
+            output=one_hot_final,
+            n_channels=n_channels,
+        )
 
-        assert (one_hot_final[0].sum(0) == 1).all()
+        if encode_missing:
+            assert (one_hot_final[0].sum(0) == 1).all()
         assert one_hot_final.dtype == np.int8
         assert one_hot_final.flags["C_CONTIGUOUS"], "Array not C-contiguous!"
 
@@ -368,6 +388,7 @@ class FinalizeParsing(luigi.Task):
     output_name = luigi.Parameter()
     read_chunk_size = luigi.IntParameter()
     process_chunk_size = luigi.IntParameter()
+    encode_missing = luigi.BoolParameter(default=False)
 
     def requires(self):
         return [self.clone(OneHotSNPs), self.clone(ExternalRawData)]
@@ -397,6 +418,7 @@ class CleanupIntermediateTaskOutputs(luigi.Task):
     output_format = luigi.Parameter()
     read_chunk_size = luigi.IntParameter()
     process_chunk_size = luigi.IntParameter()
+    encode_missing = luigi.BoolParameter(default=False)
 
     @property
     def interim_folder(self):
@@ -482,6 +504,15 @@ def get_parser() -> argparse.ArgumentParser:
         default=1024,
         help="How many individuals to process for one-hot encoding at a time. "
         "Smaller values reduce memory usage. Must be <= read_chunk_size.",
+    )
+
+    parser.add_argument(
+        "--encode_missing",
+        action="store_true",
+        default=False,
+        help="If set, encode missing genotypes as a dedicated 4th channel "
+        "(4 channels total). Default is 3 channels where missing values "
+        "are represented as all-zeros.",
     )
 
     return parser
