@@ -7,7 +7,7 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 from pathlib import Path
 from shutil import copyfile, rmtree
-from typing import Literal
+from typing import Literal, cast
 
 import luigi
 import numba
@@ -29,18 +29,20 @@ luigi_logger.setLevel(logging.INFO)
 
 
 class RenameOnFailureMixin:
-    def on_failure(self, exception):
-        targets = luigi.task.flatten(self.output())
+    def on_failure(self, exception: Exception) -> str:
+        self_task = cast(luigi.Task, self)
+        targets = luigi.task.flatten(self_task.output())
         for target in targets:
-            if target.exists() and isinstance(target, luigi.LocalTarget):
+            if isinstance(target, luigi.LocalTarget) and target.exists():
                 target_path = Path(target.path)
                 new_fname = target_path.stem + "_FAILED" + target_path.suffix
                 target_path.rename(target_path.parent / new_fname)
-        return luigi.Task.on_failure(self, exception)
+        return luigi.Task.on_failure(self_task, exception)
 
 
 class Config(luigi.Task, RenameOnFailureMixin):
     output_folder = luigi.Parameter()
+    raw_data_path = luigi.Parameter()
 
     @property
     def input_name(self):
@@ -116,24 +118,28 @@ class OneHotSNPs(Config):
         output_path = Path(self.output().path)
         ensure_path_exists(output_path, is_folder=True)
 
+        output_format = cast(Literal["disk", "parquet"], self.output_format)
+        read_chunk_size = cast(int, self.read_chunk_size)
+        process_chunk_size = cast(int, self.process_chunk_size)
+
         read_generator = get_sample_generator_from_bed(
-            bed_path=input_path, read_chunk_size=int(self.read_chunk_size)
+            bed_path=input_path, read_chunk_size=read_chunk_size
         )
         process_generator = rechunk_generator(
-            chunk_generator=read_generator, new_chunk_size=int(self.process_chunk_size)
+            chunk_generator=read_generator, new_chunk_size=process_chunk_size
         )
         sample_id_one_hot_array_generator = _get_one_hot_encoded_generator(
             chunked_sample_generator=process_generator,
-            output_format=self.output_format,
+            output_format=output_format,
             encode_missing=bool(self.encode_missing),
         )
 
         write_one_hot_outputs(
             id_array_generator=sample_id_one_hot_array_generator,
             output_folder=output_path,
-            output_format=self.output_format,
+            output_format=output_format,
             output_name=str(self.output_name),
-            batch_size=int(self.process_chunk_size),
+            batch_size=process_chunk_size,
         )
 
 
@@ -363,7 +369,7 @@ def rechunk_generator(
 def get_sample_generator_from_bed(
     bed_path: Path,
     read_chunk_size: int = 1024,
-) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
+) -> Generator[tuple[Sequence[str], np.ndarray], None, None]:
     plink_suffix = bed_path.with_suffix("")
 
     reader = GenoReader(plink_suffix=str(plink_suffix), chunk_size=read_chunk_size)
@@ -373,12 +379,12 @@ def get_sample_generator_from_bed(
         ids.append(item.sample_id)
         arrays.append(item.genotypes_as_numpy())
         if len(ids) >= read_chunk_size:
-            yield np.array(ids), np.array(arrays, dtype=np.int8)
+            yield ids, np.array(arrays, dtype=np.int8)
             ids = []
             arrays = []
 
     if ids:
-        yield np.array(ids), np.array(arrays, dtype=np.int8)
+        yield ids, np.array(arrays, dtype=np.int8)
 
 
 @inherits(OneHotSNPs)
@@ -456,7 +462,7 @@ class RunAll(luigi.WrapperTask):
     config = luigi.DictParameter()
 
     def requires(self):
-        yield CleanupIntermediateTaskOutputs(**self.config)
+        yield CleanupIntermediateTaskOutputs(**cast(dict, self.config))
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -528,7 +534,7 @@ def get_cl_args():
 
 def main():
     cl_args = get_cl_args()
-    luigi.build([RunAll(vars(cl_args))], local_scheduler=True)
+    luigi.build([RunAll(config=vars(cl_args))], local_scheduler=True)  # type: ignore[unknown-argument]
 
 
 if __name__ == "__main__":
