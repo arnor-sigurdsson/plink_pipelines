@@ -42,7 +42,7 @@ class RenameOnFailureMixin:
 
 class Config(luigi.Task, RenameOnFailureMixin):
     output_folder = luigi.Parameter()
-    raw_data_path = luigi.Parameter()
+    raw_data_path: str
 
     @property
     def input_name(self):
