@@ -24,6 +24,8 @@ def _get_test_cl_commands() -> list[str]:
         " --read_chunk_size 200 --process_chunk_size 100 --output_format parquet",
         " --process_chunk_size 50",
         " --read_chunk_size 1000 --process_chunk_size 500",
+        " --encode_missing",
+        " --encode_missing --output_format parquet",
     ]
 
     for extra in extras:
@@ -68,15 +70,19 @@ def test_run_plink_pipelines_in_process(command: str, tmp_path: Path) -> None:
 
     raw_data_folder = Path("tests/test_data/")
 
+    n_channels = 4 if "encode_missing" in command else 3
+
     if "parquet" in command:
         validate_parquet_files(
             path=encoded_outputs_path,
             raw_data_folder=raw_data_folder,
+            n_channels=n_channels,
         )
     else:
         validate_npy_files(
             path=encoded_outputs_path,
             raw_data_folder=raw_data_folder,
+            n_channels=n_channels,
         )
 
 
@@ -85,7 +91,7 @@ def _lines_in_file(file_path: Path) -> int:
         return sum(1 for _ in f)
 
 
-def validate_npy_files(path: Path, raw_data_folder: Path) -> None:
+def validate_npy_files(path: Path, raw_data_folder: Path, n_channels: int = 3) -> None:
     file_count = 0
 
     fam_file = next(i for i in raw_data_folder.iterdir() if i.suffix == ".fam")
@@ -93,7 +99,7 @@ def validate_npy_files(path: Path, raw_data_folder: Path) -> None:
 
     expected_samples = _lines_in_file(file_path=fam_file)
     expected_snps = _lines_in_file(file_path=bim_file)
-    expected_shape = (4, expected_snps)
+    expected_shape = (n_channels, expected_snps)
 
     for file in path.iterdir():
         if file.suffix == ".npy":
@@ -105,7 +111,9 @@ def validate_npy_files(path: Path, raw_data_folder: Path) -> None:
     assert file_count == expected_samples
 
 
-def validate_parquet_files(path: Path, raw_data_folder: Path) -> None:
+def validate_parquet_files(
+    path: Path, raw_data_folder: Path, n_channels: int = 3
+) -> None:
     parquet_file = path / "genotype.parquet"
     assert parquet_file.exists(), f"Expected parquet file not found: {parquet_file}"
 
@@ -114,7 +122,7 @@ def validate_parquet_files(path: Path, raw_data_folder: Path) -> None:
 
     expected_samples = _lines_in_file(file_path=fam_file)
     expected_snps = _lines_in_file(file_path=bim_file)
-    expected_shape = (4, expected_snps)
+    expected_shape = (n_channels, expected_snps)
 
     table = pq.read_table(parquet_file)
     df = table.to_pandas()
@@ -142,9 +150,10 @@ def validate_parquet_files(path: Path, raw_data_folder: Path) -> None:
             expected_shape
         )
 
-        assert (genotype_data.sum(axis=0) == 1).all(), (
-            f"Row {idx}: invalid one-hot encoding"
-        )
+        if n_channels == 4:
+            assert (genotype_data.sum(axis=0) == 1).all(), (
+                f"Row {idx}: invalid one-hot encoding"
+            )
 
         assert genotype_data.dtype == np.int8, f"Row {idx}: expected int8 dtype"
 
